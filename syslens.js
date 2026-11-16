@@ -106,7 +106,8 @@ try { const fe = path.join(DIR, 'events-' + day() + '.jsonl'), fr = path.join(DI
   if (hist.length) console.log('Historique du jour rechargé : ' + hist.length + ' logs');
 } catch (e) {}
 // --- logos d'extension : récupérés une fois sur le site officiel de la marque, puis gardés dans extensions/<id>/
-const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'https://www.cisco.com/site/fr/fr/index.html' }, JSON.parse(process.env.EXT_SITES || '{}'));
+const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'https://www.cisco.com/site/fr/fr/index.html',
+  ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://claude.ai', hermes: 'https://nousresearch.com', grok: 'https://grok.com', codex: 'https://openai.com/codex/', claudecode: 'https://www.claude.com/product/claude-code' }, JSON.parse(process.env.EXT_SITES || '{}'));
 const LOGO_EXT = { 'image/svg+xml': 'svg', 'image/png': 'png', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const LOGO_CT = Object.fromEntries(Object.entries(LOGO_EXT).map(([c, e]) => [e, c]));
 const logoJobs = new Map();
@@ -156,6 +157,22 @@ async function tgApi(q) {
     return { found: true, chat: hit.chat, title: hit.title }; }
   if (q.op === 'send') { await tg(q.token, 'sendMessage', { chat_id: q.chat, text: `SysLens — message de test\nLes alertes de niveau ${String(q.lv || 'critique').slice(0, 60)} arriveront dans ce groupe.` }); return { sent: true }; }
   throw new Error('Opération inconnue.'); }
+// --- IA : liste des modèles (vérifie la clé ou l'adresse Ollama) et présence de Codex / Claude Code
+const AI_API = { chatgpt: ['https://api.openai.com/v1/models', 'bearer'], mistral: ['https://api.mistral.ai/v1/models', 'bearer'], grok: ['https://api.x.ai/v1/models', 'bearer'], hermes: ['https://inference-api.nousresearch.com/v1/models', 'bearer'], claude: ['https://api.anthropic.com/v1/models?limit=100', 'anthropic'] };
+async function aiApi(q) {
+  if (q.op === 'cli') { const tool = { codex: 'codex', claudecode: 'claude' }[q.tool]; if (!tool) throw new Error('Outil inconnu.');
+    const r = cp.spawnSync(tool, ['--version'], { encoding: 'utf8', timeout: 8000 }); if (r.error || r.status !== 0) return { installed: false };
+    let logged = null; if (tool === 'codex') logged = cp.spawnSync('codex', ['login', 'status'], { encoding: 'utf8', timeout: 8000 }).status === 0;
+    return { installed: true, logged, version: String(r.stdout || r.stderr).trim().split('\n')[0].slice(0, 80) }; }
+  if (q.op === 'models') {
+    if (q.provider === 'ollama') { let u; try { u = new URL('/api/tags', String(q.url || '')); } catch (e) { throw new Error('Adresse invalide.'); } if (!/^https?:$/.test(u.protocol)) throw new Error('Adresse invalide.');
+      const r = await fetch(u, { signal: AbortSignal.timeout(8000) }).catch(() => { throw new Error('Ollama ne répond pas à ' + u.origin + '.'); });
+      if (!r.ok) throw new Error('Ollama a répondu ' + r.status + '.'); return { models: ((await r.json()).models || []).map(m => m.name).sort() }; }
+    const a = AI_API[q.provider], key = String(q.key || '').trim(); if (!a) throw new Error('Fournisseur inconnu.'); if (key.length < 20 || /\s/.test(key)) throw new Error('Clé invalide.');
+    const r = await fetch(a[0], { headers: a[1] === 'anthropic' ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' } : { authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(10000) }).catch(() => { throw new Error('Le fournisseur ne répond pas.'); });
+    if (r.status === 401 || r.status === 403) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + '.');
+    return { models: ((await r.json()).data || []).map(m => m.id).filter(Boolean).sort() }; }
+  throw new Error('Opération inconnue.'); }
 const sameOrigin = q => { const o = q.headers.origin; return (!o || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o)) && /application\/json/.test(q.headers['content-type'] || ''); };
 const webSrv = http.createServer((q, r) => {
   if (q.url === '/api/version') { let news = []; try { news = JSON.parse(fs.readFileSync(path.join(__dirname, 'nouveautes.json'), 'utf8')).slice(0, 5); } catch (e) {} r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ ...upd, news })); }
@@ -164,6 +181,10 @@ const webSrv = http.createServer((q, r) => {
     q.on('end', async () => { let install = false; try { install = !!JSON.parse(body).install; } catch (e) {} json(await checkUpdate(install)); }); }
   else if (q.url.startsWith('/api/events')) { const since = +(new URL(q.url, 'http://x').searchParams.get('since') || 0); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ version: VERSION, devices: [...devices.values()], events: hist.filter(e => e.id > since).slice(-5000) })); }
   else if (q.url.startsWith('/console')) { fs.readFile(path.join(__dirname, 'console.html'), (err, b) => { r.writeHead(err ? 404 : 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); r.end(err ? 'console.html introuvable' : b); }); }
+  else if (q.url === '/api/ai' && q.method === 'POST') {
+    const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
+    if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 8192) q.destroy(); });
+    q.on('end', async () => { try { json(200, await aiApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
   else if (q.url === '/api/tg' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' });
@@ -211,7 +232,9 @@ function restart() { let left = 3, gone = false; const go = () => { if (gone) re
   try { udp.close(one); } catch (e) { one(); } tcpSrv.close(one); webSrv.close(one); if (webSrv.closeAllConnections) webSrv.closeAllConnections(); }
 
 if (SELFTEST) { console.log('selftest ok ' + VERSION); process.exit(0); }
-udp.bind(PORT, BIND); tcpSrv.listen(PORT, BIND); webSrv.listen(WEB, '127.0.0.1');
+udp.bind(PORT, BIND); tcpSrv.listen(PORT, BIND);
+webSrv.listen(WEB, '127.0.0.1', () => {
+  const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
+  console.log(`SysLens ${VERSION} — écoute syslog UDP et TCP ${BIND}:${PORT}${ALLOW.length ? ', logs acceptés seulement depuis ' + process.env.ALLOW : ''}\nIP à mettre dans le USG (serveur distant) : ${ips.join(' ou ') || 'aucune IP détectée'}\nPage de suivi : http://localhost:${WEB}\nConsole SysLens : http://localhost:${WEB}/console\nFichiers : ${DIR}\nMise à jour auto : ${upd.auto ? 'activée (' + REPO + ', releases)' : 'désactivée'}\nCtrl+C pour arrêter.\n`);
+});
 if (upd.auto) { setTimeout(() => checkUpdate(true), 60e3); setInterval(() => checkUpdate(true), 3600e3); }
-const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
-console.log(`SysLens ${VERSION} — écoute syslog UDP et TCP ${BIND}:${PORT}${ALLOW.length ? ', logs acceptés seulement depuis ' + process.env.ALLOW : ''}\nIP à mettre dans le USG (serveur distant) : ${ips.join(' ou ') || 'aucune IP détectée'}\nPage de suivi : http://localhost:${WEB}\nConsole SysLens : http://localhost:${WEB}/console\nFichiers : ${DIR}\nMise à jour auto : ${upd.auto ? 'activée (' + REPO + ', releases)' : 'désactivée'}\nCtrl+C pour arrêter.\n`);

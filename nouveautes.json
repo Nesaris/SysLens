@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.3.0",
+    "date": "2026-11-16",
+    "points": [
+      "Page Intelligence artificielle refaite en cartes : Ollama, Mistral, ChatGPT, Claude, Hermes et Grok, avec leur logo.",
+      "ChatGPT et Claude se branchent par clé API ou par abonnement (via Codex ou Claude Code) ; Hermes en local avec Ollama ou par l’API Nous Portal.",
+      "Configuration pas à pas : la clé est vérifiée en listant les vrais modèles du fournisseur, la présence de Codex ou Claude Code est contrôlée sur la machine.",
+      "L’étape RGPD fait partie de l’assistant : accord écrit par client, pseudonymisation imposée, journal des appels.",
+      "La console n’annonce le démarrage qu’une fois réellement à l’écoute."
+    ]
+  },
+  {
     "version": "0.2.0",
     "date": "2026-11-16",
     "points": [

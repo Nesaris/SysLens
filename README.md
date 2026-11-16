@@ -32,7 +32,7 @@ When you look after the network of dozens or hundreds of clients, the logs are t
 
 - **Deterministic scoring.** A reference catalogue built from the vendor documentation, plus fixed modifiers (head-end firewall, public source, repetition, out-of-hours, correlation across clients). Same input, same score, and every incident shows how its score was computed.
 - **Zyxel first.** ZLD and uOS firewalls (USG FLEX, ATP), switches, access points and Nebula. CEF and plain syslog, UDP and TCP.
-- **AI of your choice, never in charge.** A local model (Ollama) gives an opinion on medium and serious incidents; critical ones are sent without waiting for it. A GDPR warning blocks cloud AI until each client has authorised it.
+- **AI of your choice, never in charge.** Ollama, Mistral, ChatGPT, Claude, Hermes or Grok — by API key, or with a ChatGPT or Claude subscription through Codex or Claude Code. The AI gives an opinion on medium and serious incidents; critical ones are sent without waiting for it, and cloud AI stays off for a client until they have agreed in writing (GDPR).
 - **Built for large fleets.** Clients come from your CRM (Odoo extension, with import rules), the client picker scales to thousands, and silent devices raise an incident.
 - **Extensions.** Vendors, CRM and notifications (Telegram, mail) plug in through a manifest and are configured step by step.
 - **Updates itself.** Every hour it checks this repository's releases, verifies each file against `SHA256SUMS`, test-starts the new version, keeps the previous one and restarts.
@@ -42,7 +42,7 @@ When you look after the network of dozens or hundreds of clients, the logs are t
 <table>
 <tr><td align="center" width="50%"><img src="medias/capture-accueil.png" alt="Overview"><br><sub>Overview</sub></td><td align="center" width="50%"><img src="medias/capture-incident.png" alt="Incident and score breakdown"><br><sub>Incident and score breakdown</sub></td></tr>
 <tr><td align="center" width="50%"><img src="medias/capture-logs.png" alt="Log stream"><br><sub>Log stream</sub></td><td align="center" width="50%"><img src="medias/capture-extensions.png" alt="Extensions"><br><sub>Extensions</sub></td></tr>
-<tr><td align="center" width="50%"><img src="medias/capture-configuration.png" alt="Step-by-step configuration"><br><sub>Step-by-step configuration</sub></td></tr>
+<tr><td align="center" width="50%"><img src="medias/capture-configuration.png" alt="Step-by-step configuration"><br><sub>Step-by-step configuration</sub></td><td align="center" width="50%"><img src="medias/capture-ia.png" alt="AI providers"><br><sub>AI providers</sub></td></tr>
 </table>
 
 ## Quick start

@@ -133,3 +133,14 @@ test('mise à jour : un fichier qui ne correspond pas à SHA256SUMS est refusé'
   assert.equal(JSON.parse(fs.readFileSync(path.join(s.dossier, 'package.json'))).version, require('../package.json').version, 'rien n’a été remplacé');
   assert.ok(!fs.existsSync(path.join(s.dossier, '.previous')));
 });
+
+test('IA : la liste des modèles d’Ollama passe par le serveur, et une clé courte est refusée sans appel', async () => {
+  const ollama = http.createServer((q, r) => { r.writeHead(q.url === '/api/tags' ? 200 : 404, { 'content-type': 'application/json' }); r.end(JSON.stringify({ models: [{ name: 'qwen3:8b' }, { name: 'hermes3:8b' }] })); });
+  await new Promise(r => ollama.listen(0, '127.0.0.1', r)); after(() => ollama.close());
+  const s = await demarrer(), json = { 'content-type': 'application/json' };
+  const ok = await requete(s.web, '/api/ai', { methode: 'POST', corps: JSON.stringify({ op: 'models', provider: 'ollama', url: 'http://127.0.0.1:' + ollama.address().port }), entetes: json });
+  assert.deepEqual(ok.json.models, ['hermes3:8b', 'qwen3:8b']);
+  const ko = await requete(s.web, '/api/ai', { methode: 'POST', corps: JSON.stringify({ op: 'models', provider: 'claude', key: 'court' }), entetes: json });
+  assert.equal(ko.statut, 400); assert.match(ko.json.error, /Clé invalide/);
+  assert.equal((await requete(s.web, '/api/ai', { methode: 'POST', corps: '{}', entetes: { ...json, origin: 'https://exemple.com' } })).statut, 403);
+});

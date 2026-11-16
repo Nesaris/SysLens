@@ -13,7 +13,7 @@ SysLens reçoit les logs des équipements réseau d'un parc de clients, note cha
 
 - **Note déterministe.** Un référentiel construit à partir de la documentation du constructeur, puis des modificateurs fixes : pare-feu de tête, source publique, répétition, hors plage ouvrée, même source vue chez plusieurs clients. Mêmes entrées, même note, et chaque incident montre son calcul.
 - **Quatre niveaux.** Bénin (moins de 30), moyen (30), grave (60), critique (85). Les relevés de routine (statistiques d'interfaces, charge, paquets bloqués par la règle par défaut) restent bénins et n'ouvrent jamais d'incident.
-- **IA au choix, jamais aux commandes.** Un modèle local (Ollama) donne son avis sur les incidents moyens et graves ; les critiques partent sans l'attendre. Une IA en nuage reste bloquée tant qu'un client ne l'a pas autorisée par écrit (RGPD, art. 28).
+- **IA au choix, jamais aux commandes.** Ollama, Mistral, ChatGPT, Claude, Hermes ou Grok, par clé API ou avec un abonnement ChatGPT ou Claude via Codex ou Claude Code. L'IA donne son avis sur les incidents moyens et graves ; les critiques partent sans l'attendre, et une IA hors du réseau reste coupée pour un client tant qu'il ne l'a pas autorisée par écrit (RGPD, art. 28).
 - **Pensé pour un grand parc.** Les clients viennent du CRM (extension Odoo, avec règles d'import), le choix du client passe par une recherche, et un équipement qui se tait ouvre un incident.
 - **Extensions.** Constructeurs, CRM et notifications (Telegram, mail) se branchent par un manifeste et se configurent pas à pas, une question par écran.
 - **Mise à jour automatique** depuis les releases de ce dépôt, fichiers vérifiés par empreinte.
@@ -23,7 +23,7 @@ SysLens reçoit les logs des équipements réseau d'un parc de clients, note cha
 <table>
 <tr><td align="center" width="50%"><img src="medias/capture-accueil.png" alt="Vue d'ensemble"><br><sub>Vue d'ensemble</sub></td><td align="center" width="50%"><img src="medias/capture-incident.png" alt="Incident et calcul du score"><br><sub>Incident et calcul du score</sub></td></tr>
 <tr><td align="center" width="50%"><img src="medias/capture-logs.png" alt="Flux de logs"><br><sub>Flux de logs</sub></td><td align="center" width="50%"><img src="medias/capture-extensions.png" alt="Extensions"><br><sub>Extensions</sub></td></tr>
-<tr><td align="center" width="50%"><img src="medias/capture-configuration.png" alt="Configuration pas à pas"><br><sub>Configuration pas à pas</sub></td></tr>
+<tr><td align="center" width="50%"><img src="medias/capture-configuration.png" alt="Configuration pas à pas"><br><sub>Configuration pas à pas</sub></td><td align="center" width="50%"><img src="medias/capture-ia.png" alt="Fournisseurs d’IA"><br><sub>Fournisseurs d’IA</sub></td></tr>
 </table>
 
 ## Installation

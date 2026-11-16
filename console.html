@@ -95,6 +95,8 @@ em.b-crit{background:var(--crit);color:#fff}em.b-warn{background:color-mix(in sr
 .xwait{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px dashed var(--line2);border-radius:10px;font-size:14px}.xwait i{width:16px;height:16px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--acc);animation:spin .8s linear infinite;flex:none}.xwait .lnk{margin-left:auto}
 .xnews{margin:0;padding-left:18px;display:grid;gap:4px;font-size:14px}
 .updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--acc);border-radius:12px;padding:10px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.xchoice{display:grid;gap:10px}.xopt{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line2);border-radius:12px;padding:14px;cursor:pointer}.xopt:has(input:checked){border-color:var(--acc);background:var(--acc-dim)}.xopt input{margin-top:3px;accent-color:var(--acc);width:18px;height:18px;flex:none}.xopt>span{display:grid;gap:3px}.xopt>span .xg{width:32px;height:32px;border-radius:8px;margin-bottom:4px}.xopt b{font-weight:600}
+.xcur{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.xcur h2{margin:0;font-size:18px}.xcur .sub{margin:2px 0 0}
 .xsum{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
 .xsec{margin-top:22px}.xsec>h2{display:flex;align-items:baseline;gap:8px;margin:0 0 10px;font-size:15px;font-weight:600}.xsec>h2 small{font:12px var(--mono);color:var(--mute);font-weight:400}
 .xgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
@@ -473,7 +475,7 @@ function nav() {
     : id === 'devices' && silent ? `<em class="b-warn" title="${silent} silencieux">${silent}</em>` : id === 'catalog' && prop ? `<em class="b-n" title="${prop} à valider">${prop}</em>` : id === 'extensions' && todo ? `<em class="b-warn" title="${todo} à configurer">${todo}</em>` : '';
   $('#nav').innerHTML = GROUPS.map(([g, items]) => `<div class="grp"><p>${g}</p>${items.map(([id,n]) => `<a href="#${id}" class="${route() === id ? 'on' : ''}" title="${n}"${route() === id ? ' aria-current="page"' : ''}><svg><use href="#i-${id}"/></svg><span>${n}</span>${badge(id)}</a>`).join('')}</div>`).join('');
   const od = EXT.find(x => x.id === 'odoo'), mins = Math.max(1, Math.round((Date.now() - od.lastSync) / 60e3));
-  $('#health').innerHTML = `<div style="--c:${silent ? 'var(--grav)' : 'var(--acc)'}"><i></i>Collecte<b>${devs.length - silent}/${devs.length}</b></div><div style="--c:var(--acc)"><i></i>${PROV[ai.prov][2] ? 'IA cloud' : 'IA locale'}<b>${esc(ai.model.split(':')[0])}</b></div><div style="--c:${od.st === 'on' ? 'var(--acc)' : 'var(--grav)'}"><i></i>Odoo<b>${od.st === 'on' ? 'sync ' + mins + ' min' : 'à configurer'}</b></div>`;
+  $('#health').innerHTML = `<div style="--c:${silent ? 'var(--grav)' : 'var(--acc)'}"><i></i>Collecte<b>${devs.length - silent}/${devs.length}</b></div><div style="--c:var(--acc)"><i></i>${aiCloud() ? 'IA cloud' : 'IA locale'}<b>${esc(ai.model.split(':')[0])}</b></div><div style="--c:${od.st === 'on' ? 'var(--acc)' : 'var(--grav)'}"><i></i>Odoo<b>${od.st === 'on' ? 'sync ' + mins + ' min' : 'à configurer'}</b></div>`;
   $('#bellN').textContent = crit || ''; $('#bellN').hidden = !crit;
   $('#livePill').className = 'pill' + (paused ? ' off' : ''); $('#livePill').textContent = paused ? 'flux en pause' : LIVEMODE ? (liveOk === false ? 'récepteur injoignable' : 'données réelles') : 'en direct';
 }
@@ -539,7 +541,7 @@ V.overview = () => {
   <section class="card c-tbl"><h3>À traiter maintenant <a href="#incidents">Voir les ${open.length} incidents</a></h3>${incRows(open.slice(0, 6))}</section>
   </div>
   <aside class="ovside">
-    <section class="card"><h3>Couche IA <span class="tag ok">${PROV[ai.prov][2] ? 'cloud' : 'local'}</span></h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Budget IA consommé"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${ring > 0 ? `<circle cx="44" cy="44" r="34" fill="none" stroke="${aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)'}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${(ring * 100).toFixed(1)} 100" transform="rotate(-90 44 44)"/>` : ''}<text x="44" y="49" text-anchor="middle" font-size="15" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${Math.round(ring * 100)} %</text></svg>
+    <section class="card"><h3>Couche IA <span class="tag ok">${aiCloud() ? 'cloud' : 'local'}</span></h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Budget IA consommé"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${ring > 0 ? `<circle cx="44" cy="44" r="34" fill="none" stroke="${aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)'}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${(ring * 100).toFixed(1)} 100" transform="rotate(-90 44 44)"/>` : ''}<text x="44" y="49" text-anchor="middle" font-size="15" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${Math.round(ring * 100)} %</text></svg>
       <dl class="kv" style="font-size:13px"><dt>Moteur</dt><dd>${esc(ai.provName())}</dd><dt>Modèle</dt><dd class="mono">${esc(ai.model)}</dd><dt>Appels</dt><dd>${aiLog.length} cette session</dd></dl></div>
       <p class="note">Budget IA consommé (part vue / 5 %). Les critiques partent sans attendre le modèle.</p></section>
     <section class="card"><h3>Logs par famille</h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Répartition des logs par famille"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${donut}<text x="44" y="48" text-anchor="middle" font-size="13" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${fmtN(ev.length)}</text></svg>
@@ -578,14 +580,6 @@ V.rules = () => `<h1>Règles de corrélation</h1><p class="sub">Version 1.0 des 
 V.docs = () => `<h1>Documentation Zyxel</h1><p class="sub">Base documentaire utilisée par l'IA et pour proposer des entrées de référentiel. Chaque passage garde son document et sa version.</p>
   <div class="bar"><label class="btn p" style="display:inline-flex;align-items:center;cursor:pointer">Importer un PDF<input type="file" accept=".pdf,.html,.htm" id="docIn" multiple hidden></label><span class="sub" style="margin:0;font-size:13px">Démo : le fichier reste dans votre navigateur, rien n'est envoyé.</span></div>
   <section class="panel"><table class="stack"><thead><tr><th>Document</th><th>Modèles</th><th>Version</th><th>Type</th><th class="num">Passages</th><th>État</th></tr></thead><tbody>${docs.map(d => `<tr><td data-l="Document">${esc(d.t)}</td><td data-l="Modèles">${esc(d.m)}</td><td data-l="Version" class="mono">${esc(d.v)}</td><td data-l="Type">${d.p}</td><td data-l="Passages" class="num">${d.n || '—'}</td><td data-l="État"><span class="tag ${d.s === 'Indexé' ? 'ok' : 'warn'}">${esc(d.s)}</span></td></tr>`).join('')}</tbody></table></section>`;
-const PROV = {ollama:['Ollama (local)','http://ia.exemple.local:11434',false],vllm:['vLLM (local)','http://ia.exemple.local:8000/v1',false],compat:['API compatible OpenAI (auto-hébergée)','https://ia.exemple.local/v1',false],cloud:['API cloud (fournisseur externe)','https://api.fournisseur.example/v1',true]};
-const ai = {prov:'ollama', url:PROV.ollama[1], model:'qwen3.6:27b', timeout:60, pseudo:true, provName(){return PROV[this.prov][0];}};
-V.ai = () => `<h1>Réglages IA</h1><p class="sub">Ollama local par défaut. Un fournisseur cloud demande une validation RGPD client par client.</p>
-  <section class="panel"><form class="form" id="aiForm"><label>Fournisseur<select id="aiProv">${Object.entries(PROV).map(([k,v]) => `<option value="${k}" ${ai.prov === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
-  <label>Adresse<input type="text" inputmode="url" id="aiUrl" value="${esc(ai.url)}"></label><label>Modèle<input type="text" id="aiModel" value="${esc(ai.model)}"></label><label>Délai max (s)<input type="number" id="aiTo" value="${ai.timeout}" min="5" max="300"></label>
-  <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn p" type="submit">Enregistrer</button><button class="btn" type="button" id="aiTest">Tester la connexion</button><span id="aiMsg" class="sub" style="margin:0"></span></div></form>
-  ${PROV[ai.prov][2] ? `<p class="ai" style="margin-top:14px">Fournisseur cloud actif. Pseudonymisation : ${ai.pseudo ? 'activée' : 'désactivée'}. Clients autorisés : ${ai.allowed.map(id => esc(cName(id))).join(', ') || 'aucun'} ; les autres restent sur le modèle local.</p>` : ''}</section>
-  <section class="panel" style="margin-top:16px"><h2>Journal des appels</h2>${aiLog.length ? `<table class="stack"><thead><tr><th>Heure</th><th>Client</th><th>Incident</th><th>Fournisseur</th><th class="num">Caractères envoyés</th></tr></thead><tbody>${aiLog.slice().reverse().map(l => `<tr><td data-l="Heure" class="mono">${hhmm(l.t)}</td><td data-l="Client">${esc(cName(l.cli))}</td><td data-l="Incident">${esc(l.inc)}</td><td data-l="Fournisseur">${esc(l.p)}</td><td data-l="Caractères" class="num">${l.n}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Aucun appel dans cette session. Ouvrez un incident moyen ou grave pour en déclencher un.</p>'}</section>`;
 V.admin = () => `<h1>Administration</h1><p class="sub">Clients, rôles et conservation.</p><div class="grid2"><section class="panel"><h2>Clients supervisés</h2><table class="stack"><thead><tr><th>Client</th><th>Plage ouvrée</th><th class="num">Équipements</th><th>Rétention</th></tr></thead><tbody>${MON().map(c => `<tr><td data-l="Client">${esc(c.name)}</td><td data-l="Plage" class="mono">${c.hours[0]} h – ${c.hours[1]} h</td><td data-l="Équipements" class="num">${devices.filter(d => d.cli === c.id).length}</td><td data-l="Rétention">12 mois</td></tr>`).join('')}</tbody></table></section>
   <section class="panel"><h2>Rôles</h2><dl class="kv"><dt>Admin plateforme</dt><dd>Tout, sauf effacer un événement</dd><dt>Admin réseau</dt><dd>Incidents, règles, équipements</dd><dt>Astreinte N1</dt><dd>Voir, acquitter, escalader</dd><dt>Lecture</dt><dd>Tableaux de bord et rapports</dd></dl><p class="sub" style="margin:12px 0 0;font-size:13px">MFA obligatoire. Aucun rôle ne peut supprimer un log avant la fin de la rétention.</p></section></div>
   <section class="panel" style="margin-top:16px" id="updPanel">${updPanel()}</section>`;
@@ -738,6 +732,9 @@ const XW = {
       body: s => xtest(s, 'Envoyer le mail de test'), ok: s => s.tested, sum: s => s.tested ? 'Mail de test reçu' : 'Pas encore testé',
       run: s => [`Connexion à ${s.host}:${s.port}`, s.tls ? 'Chiffrement STARTTLS négocié' : 'Connexion non chiffrée', `Mail envoyé à ${s.to}`]}]};
 let xw = null;
+const xIsOn = () => xw.ai ? ai.prov === xw.id : xItem(xw.id).st === 'on';
+const xSteps = id => { const w = XW[id]; return typeof w === 'function' ? w(XS[id]) : w; };
+const xItem = id => EXT.find(e => e.id === id) || (typeof AIP !== 'undefined' && AIP.find(e => e.id === id));
 const tgCall = async body => { const r = await fetch('/api/tg', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; };
 async function tgPoll() { const s = XS.telegram; xw.polling = true; xw.err = ''; xRender(); const t0 = Date.now();
   while (xw && xw.polling && xw.id === 'telegram' && xw.step === 1) {
@@ -746,19 +743,20 @@ async function tgPoll() { const s = XS.telegram; xw.polling = true; xw.err = '';
     catch (e) { xw.err = e.message; xw.polling = false; xRender(); return; }
     if (Date.now() - t0 > 180e3) { xw.err = 'Rien reçu en 3 minutes. Vérifiez que le bot est bien dans le groupe, puis relancez.'; xw.polling = false; xRender(); return; }
     await new Promise(r => setTimeout(r, 2500)); } }
-function xRows(id, edit) { return `<dl class="xrows">${XW[id].map((st, i) => `<div><dt>${esc(st.t)}</dt><dd>${esc(st.sum(XS[id]))}</dd>${edit ? `<button class="lnk" data-xgo="${i}">Modifier</button>` : ''}</div>`).join('')}</dl>`; }
+function xRows(id, edit) { return `<dl class="xrows">${xSteps(id).map((st, i) => `<div><dt>${esc(st.t)}</dt><dd>${esc(st.sum(XS[id]))}</dd>${edit ? `<button class="lnk" data-xgo="${i}">Modifier</button>` : ''}</div>`).join('')}</dl>`; }
 function xHead(x, sub) { return `<button class="btn" id="dClose" style="float:right">Fermer</button><div class="xdh">${xLogo(x.id, x.name)}<div><h2>${esc(x.name)}</h2><p class="sub">${sub}</p></div></div>`; }
-function xRender() { const x = EXT.find(e => e.id === xw.id), s = XS[x.id], W = XW[x.id];
+function xRender() { const x = xItem(xw.id), s = XS[x.id], W = xSteps(x.id);
   if (xw.step === 'sum') {
     const extra = x.id === 'odoo' ? `<button class="btn" data-xact="sync">Synchroniser maintenant</button>` : '';
-    $('#drawer').innerHTML = xHead(x, `${esc(x.type)} · <span class="tag ${ST[x.st][1]}">${ST[x.st][0]}</span>`) + `<p style="margin:14px 0 0">${esc(x.desc)}</p>${xRows(x.id, true)}
+    const tag = xw.ai ? '<span class="tag ok">Actif</span>' : `<span class="tag ${ST[x.st][1]}">${ST[x.st][0]}</span>`;
+    $('#drawer').innerHTML = xHead(x, `${esc(x.type)} · ${tag}`) + `<p style="margin:14px 0 0">${esc(x.desc)}</p>${xRows(x.id, true)}
       <div class="wnav"><button class="btn" data-xgo="0">Tout reprendre depuis le début</button>${extra}</div><p class="note" id="xMsg">${esc(extMsg)}</p>`;
     return; }
-  const n = W.length + 1, i = xw.step, last = i === W.length, st = W[i];
-  const bar = `<div class="xbar" role="progressbar" aria-valuemin="1" aria-valuemax="${n}" aria-valuenow="${i + 1}">${Array.from({length: n}, (_, k) => `<i class="${k < i ? 'done' : k === i ? 'cur' : ''}"></i>`).join('')}</div><p class="xstep">Étape ${i + 1} sur ${n}</p>`;
+  const open = xw.ai && !s.mode, n = open ? 5 : W.length + 1, i = xw.step, last = !open && i === W.length, st = W[i];
+  const bar = `<div class="xbar" role="progressbar" aria-valuemin="1" aria-valuemax="${n}" aria-valuenow="${i + 1}">${Array.from({length: n}, (_, k) => `<i class="${k < i ? 'done' : k === i ? 'cur' : ''}"></i>`).join('')}</div><p class="xstep">Étape ${i + 1}${open ? '' : ' sur ' + n}</p>`;
   const body = last ? `<h2 class="xh">Récapitulatif</h2><p class="sub">Vérifiez, puis enregistrez. Vous pourrez tout modifier plus tard.</p>${xRows(x.id, true)}`
     : `<h2 class="xh">${esc(st.t)}</h2><p class="sub">${st.d}</p><div class="xbody">${st.body(s)}${st.check && xw.err ? `<p class="note" role="alert" style="color:var(--crit);margin-top:10px">${esc(xw.err)}</p>` : ''}</div>`;
-  $('#drawer').innerHTML = xHead(x, x.st === 'on' ? 'Modifier la configuration' : 'Configuration') + bar + body +
+  $('#drawer').innerHTML = xHead(x, xIsOn() ? 'Modifier la configuration' : 'Configuration') + bar + body +
     `<div class="wnav"><button class="btn" data-xback>${i === 0 ? 'Annuler' : 'Retour'}</button><button class="btn p" id="xNext" data-xnext ${!last && !st.ok(s) ? 'disabled' : ''}>${last ? 'Enregistrer' : 'Continuer'}</button></div>`;
   const f = $('#drawer .xbody input:not([type=checkbox]), #drawer .xbody select'); if (f && !reduce()) f.focus({preventScroll: true}); }
 function openExt(id) { extMsg = '';
@@ -767,8 +765,8 @@ function openExt(id) { extMsg = '';
   const x = EXT.find(e => e.id === id);
   if (x.st === 'soon' || !XW[id]) { $('#drawer').innerHTML = xHead(x, `${esc(x.type)} · ${ST[x.st][0]}`) + `<p style="margin:14px 0 0">${esc(x.desc)}</p><div class="fs"><p class="sub">Une extension Constructeur fournit <span class="mono">detect</span>, <span class="mono">parse</span>, <span class="mono">pull</span>, <span class="mono">catalog</span> et <span class="mono">rules</span>. Elle s'installera ici comme Zyxel, avec sa propre configuration pas à pas.</p></div>`; $('#dClose').focus(); return; }
   xw = {id, step: x.st === 'on' ? 'sum' : 0, log: []}; xRender(); $('#dClose').focus(); }
-function xOk() { const b = $('#xNext'); if (b && xw && xw.step !== 'sum' && xw.step < XW[xw.id].length) b.disabled = !XW[xw.id][xw.step].ok(XS[xw.id]); }
-async function xRun() { const s = XS[xw.id], st = XW[xw.id][xw.step]; xw.err = ''; xw.real = false;
+function xOk() { const b = $('#xNext'), W = xw && xSteps(xw.id); if (b && xw && xw.step !== 'sum' && xw.step < W.length) b.disabled = !W[xw.step].ok(XS[xw.id]); }
+async function xRun() { const s = XS[xw.id], st = xSteps(xw.id)[xw.step]; xw.err = ''; xw.real = false;
   if (st.real && LIVEMODE) { xw.log = st.run(s).map(t => ({t, st: 'run'})); s.tested = false; xRender();
     try { await st.real(s); xw.log.forEach(p => p.st = 'ok'); s.tested = true; xw.real = true; } catch (e) { xw.log = []; xw.err = e.message; } xRender(); return; }
   xw.log = st.run(s).map((t, k) => ({t, st: k ? 'todo' : 'run'})); s.tested = false; xRender();
@@ -776,17 +774,18 @@ async function xRun() { const s = XS[xw.id], st = XW[xw.id][xw.step]; xw.err = '
   setTimeout(tick, reduce() ? 120 : 600); }
 document.addEventListener('click', async e => { if (!xw || !e.target.closest('#drawer')) return; const t = e.target;
   const go = t.closest('[data-xgo]'); if (go) { xw.step = +go.dataset.xgo; xw.log = []; xw.err = ''; xw.polling = false; xRender(); return; }
-  if (t.closest('[data-xback]')) { xw.polling = false; xw.err = ''; if (xw.step === 0) { if (EXT.find(z => z.id === xw.id).st === 'on') { xw.step = 'sum'; xRender(); } else closeInc(); } else { xw.step--; xw.log = []; xRender(); } return; }
-  if (t.closest('[data-xnext]')) { const W = XW[xw.id], s = XS[xw.id];
+  if (t.closest('[data-xback]')) { xw.polling = false; xw.err = ''; if (xw.step === 0) { if (xIsOn()) { xw.step = 'sum'; xRender(); } else closeInc(); } else { xw.step--; xw.log = []; xRender(); } return; }
+  if (t.closest('[data-xnext]')) { const W = xSteps(xw.id), s = XS[xw.id];
     if (xw.step < W.length) { const st = W[xw.step]; if (!st.ok(s)) return;
       if (st.check) { const b = $('#xNext'); b.disabled = true; b.textContent = 'Vérification…'; try { await st.check(s); } catch (err) { xw.err = err.message; xRender(); return; } }
       xw.step++; xw.log = []; xw.err = ''; xw.polling = false; xRender(); return; }
+    if (xw.ai) { aiSave(); extMsg = 'Fournisseur IA enregistré.'; xw.step = 'sum'; xRender(); nav(); if (route() === 'ai') $('#view').innerHTML = V.ai(); return; }
     W.forEach(st => st.save && st.save(s)); const x = EXT.find(z => z.id === xw.id); x.st = 'on'; if (x.id === 'odoo') x.lastSync = Date.now();
     extMsg = 'Configuration enregistrée.'; xw.step = 'sum'; xRender(); nav(); if (route() === 'extensions') $('#view').innerHTML = V.extensions(); return; }
   if (t.closest('[data-xrun]')) { xRun(); return; }
   if (t.closest('[data-xdetect]')) { XS.telegram.chat = ''; tgPoll(); return; }
   if (t.closest('[data-xstop]')) { xw.polling = false; xRender(); return; } });
-const xSet = t => { const s = XS[xw.id], st = XW[xw.id][xw.step];
+const xSet = t => { const s = XS[xw.id], st = xSteps(xw.id)[xw.step];
   if (t.dataset.k) s[t.dataset.k] = t.type === 'number' ? t.value : t.value;
   else if (t.dataset.kbool) s[t.dataset.kbool] = t.checked;
   else if (t.dataset.klist) { const l = t.dataset.klist; s[l] = t.checked ? [...new Set([...s[l], t.value])] : s[l].filter(v => v !== t.value); }
@@ -794,6 +793,68 @@ const xSet = t => { const s = XS[xw.id], st = XW[xw.id][xw.step];
 document.addEventListener('input', e => { if (xw && e.target.closest('#drawer') && (e.target.dataset.k)) xSet(e.target); });
 document.addEventListener('change', e => { if (!xw || !e.target.closest('#drawer')) return; const t = e.target;
   if (t.dataset.k || t.dataset.kbool || t.dataset.klist) xSet(t); else if (t.dataset.tag || t.dataset.of) setTimeout(xOk); });
+// --- connexion IA : fournisseurs en cartes, configuration pas à pas (API, abonnement ou local)
+const AIP = [
+  {id: 'ollama', name: 'Ollama', type: 'Local · sur vos machines', desc: 'Le modèle tourne chez vous : aucune donnée ne sort du réseau. Recommandé.', modes: ['local']},
+  {id: 'mistral', name: 'Mistral', type: 'API · hébergé dans l’UE', desc: 'Modèles de Mistral AI, servis depuis l’Union européenne.', modes: ['api'], eu: true},
+  {id: 'chatgpt', name: 'ChatGPT', type: 'API ou abonnement', desc: 'Modèles d’OpenAI, par clé API ou avec un abonnement ChatGPT via Codex.', modes: ['api', 'sub'], sub: 'codex'},
+  {id: 'claude', name: 'Claude', type: 'API ou abonnement', desc: 'Modèles d’Anthropic, par clé API ou avec un abonnement Claude via Claude Code.', modes: ['api', 'sub'], sub: 'claudecode'},
+  {id: 'hermes', name: 'Hermes', type: 'Local ou API', desc: 'Modèles ouverts de Nous Research : en local avec Ollama, ou par l’API Nous Portal.', modes: ['local', 'api']},
+  {id: 'grok', name: 'Grok', type: 'API', desc: 'Modèles de xAI, par clé API.', modes: ['api']}];
+const AIAPI = {mistral: ['Mistral', 'console.mistral.ai › API Keys'], chatgpt: ['OpenAI', 'platform.openai.com › API keys'], claude: ['Anthropic', 'console.anthropic.com › API Keys'], hermes: ['Nous Research', 'portal.nousresearch.com › API Keys'], grok: ['xAI', 'console.x.ai › API Keys']};
+const SUBS = {codex: {name: 'Codex', plan: 'ChatGPT (Plus, Pro, Business ou Enterprise)', install: 'npm install -g @openai/codex', login: 'codex login --device-auth', check: 'codex login status'},
+  claudecode: {name: 'Claude Code', plan: 'Claude (Pro, Max, Team ou Enterprise)', install: 'npm install -g @anthropic-ai/claude-code', login: 'claude', check: 'claude --version'}};
+const ai = {prov: 'ollama', mode: 'local', url: 'http://ia.exemple.local:11434', model: 'qwen3.6:27b', timeout: 60, pseudo: true, allowed: [],
+  provName() { const p = AIP.find(x => x.id === this.prov); return (p ? p.name : this.prov) + ' ' + ({local: '(local)', api: '(API)', sub: '(abonnement ' + (p && p.sub ? SUBS[p.sub].name : '') + ')'}[this.mode] || ''); }};
+const aiCloud = () => ai.mode !== 'local';
+const aiCall = async body => { const r = await fetch('/api/ai', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; };
+const aiNew = p => ({mode: p.modes.length === 1 ? p.modes[0] : '', url: 'http://localhost:11434', key: '', models: null, model: '', ack: false, log: false, auth: {}, cli: ''});
+const MODEX = {local: 'En local (Ollama)', api: 'Clé API', sub: 'Abonnement'};
+function aiModels(s, p) { const local = s.mode === 'local';
+  return (s.models ? (s.models.length ? `<label class="xf1" style="display:grid;gap:5px;font-size:13px;color:var(--mute)">Modèle<select data-k="model">${['', ...s.models].map(m => `<option value="${esc(m)}" ${s.model === m ? 'selected' : ''}>${m ? esc(m) : 'Choisir…'}</option>`).join('')}</select></label>${p.id === 'hermes' && local && !s.models.some(m => /hermes/i.test(m)) ? `<p class="note">Aucun modèle Hermes installé : <span class="mono">ollama pull hermes3</span> sur la machine Ollama, puis relancez la liste.</p>` : ''}` : `<p class="note">Aucun modèle disponible.</p>`) + `<button class="lnk" data-xmodels>Relancer la liste</button>`
+    : `<button class="btn p" data-xmodels>${local ? 'Lister les modèles installés' : 'Vérifier la clé et lister les modèles'}</button>`) + `<p class="note" role="alert" style="color:var(--crit)">${esc(xw && xw.err || '')}</p>`; }
+function aiSteps(p) { return s => {
+  const st = [];
+  if (p.modes.length > 1) st.push({t: 'Comment se connecter ?', d: 'Choisissez comment SysLens parlera au modèle.',
+    body: s => `<div class="xchoice">${p.modes.map(m => `<label class="xopt"><input type="radio" name="aimode" data-kset="mode" value="${m}" ${s.mode === m ? 'checked' : ''}><span>${m === 'sub' ? xLogo(p.sub, SUBS[p.sub].name) : m === 'local' ? xLogo('ollama', 'Ollama') : xLogo(p.id, p.name)}<b>${m === 'sub' ? 'Abonnement ' + p.name + ' via ' + SUBS[p.sub].name : MODEX[m]}</b><span class="note">${m === 'local' ? 'Le modèle tourne sur vos machines, rien ne sort.' : m === 'api' ? 'Payé à l’usage, avec une clé de ' + AIAPI[p.id][0] + '.' : 'Utilise votre abonnement ' + SUBS[p.sub].plan + ', sans clé API.'}</span></span></label>`).join('')}</div>`,
+    ok: s => !!s.mode, sum: s => s.mode === 'sub' ? 'Abonnement via ' + SUBS[p.sub].name : MODEX[s.mode], reset: ['models', 'model', 'cli']});
+  if (s.mode === 'local') st.push({t: 'Adresse d’Ollama', d: 'La machine où tourne Ollama, joignable depuis le serveur SysLens.', body: s => `<div class="xf1">${xf('Adresse', 'url', s.url, 'url', 'http://localhost:11434')}</div>`, ok: s => /^https?:\/\/\S+/.test(s.url), sum: s => s.url, reset: ['models', 'model']});
+  if (s.mode === 'api') st.push({t: 'Clé API', d: `Créez une clé dédiée à SysLens chez ${AIAPI[p.id][0]}, avec un plafond de dépense.`, body: s => xhow([`Ouvrez <b>${AIAPI[p.id][1]}</b>.`, 'Créez une clé nommée « SysLens », avec une limite de dépense mensuelle.', 'Collez-la ci-dessous.']) + `<div class="xf1">${xf('Clé API', 'key', s.key, 'password', 'Collez la clé ici')}</div>`, ok: s => s.key.trim().length >= 20, sum: () => 'Clé enregistrée', reset: ['models', 'model']});
+  if (s.mode === 'sub') { const u = SUBS[p.sub]; st.push({t: 'Installer ' + u.name, d: `SysLens passe par ${u.name}, connecté à votre compte ${p.name}, sur la machine du serveur SysLens.`,
+    body: s => xhow([`Dans un terminal de cette machine : <span class="mono">${u.install}</span>`, `Connectez-vous : <span class="mono">${u.login}</span>${p.sub === 'claudecode' ? ', puis choisissez la connexion avec votre compte Claude' : ' (un code s’affiche, à valider dans le navigateur)'}.`, 'Revenez ici et vérifiez.']) +
+      `<p class="ai"><b>Avant d’y envoyer des logs de clients</b> : un abonnement personnel ne fournit en général pas de contrat de sous-traitance (RGPD). Réservez-le aux essais, ou utilisez une offre entreprise qui en inclut un.</p>` +
+      (s.cli ? `<p class="ai"><b>${esc(u.name)} trouvé :</b> <span class="mono">${esc(s.cli)}</span></p>` : `<button class="btn p" data-xcli="${p.sub}">Vérifier ${esc(u.name)}</button>`) + `<p class="note" role="alert" style="color:var(--crit)">${esc(xw && xw.err || '')}</p>`,
+    ok: s => !!s.cli, sum: s => s.cli ? u.name + ' ' + s.cli : 'Non vérifié'}); }
+  if (s.mode && s.mode !== 'sub') st.push({t: 'Modèle', d: s.mode === 'local' ? 'Les modèles déjà installés sur votre Ollama.' : `SysLens interroge ${AIAPI[p.id][0]} avec la clé : si elle est refusée, vous le saurez ici.`, body: s => aiModels(s, p), ok: s => !!s.model, sum: s => s.model || '—'});
+  if (s.mode === 'sub') st.push({t: 'Modèle', d: `Laissez vide pour le modèle par défaut de ${SUBS[p.sub].name}.`, body: s => `<div class="xf1">${xf('Modèle (facultatif)', 'model', s.model, 'text', 'par défaut')}</div>`, ok: () => true, sum: s => s.model || 'par défaut'});
+  if (s.mode && s.mode !== 'local') st.push({t: 'Données des clients (RGPD)', d: p.eu ? 'Hébergement dans l’UE : pas de transfert hors de l’Union, mais le fournisseur reste un sous-traitant (art. 28).' : 'Le fournisseur devient un sous-traitant ultérieur (art. 28) ; hors de l’UE, les règles de transfert (art. 44 et suivants) s’appliquent aussi.',
+    body: s => `<label class="sw"><input type="checkbox" data-kbool="ack" ${s.ack ? 'checked' : ''}>Chaque client concerné a donné son accord écrit</label><label class="sw" style="margin-top:10px"><input type="checkbox" checked disabled>Pseudonymisation avant envoi (IP, utilisateurs, MAC) : imposée</label><label class="sw" style="margin-top:10px"><input type="checkbox" data-kbool="log" ${s.log ? 'checked' : ''}>Chaque appel est journalisé (client, incident, volume envoyé)</label>
+      <p class="note" style="margin:16px 0 8px">Clients autorisés, avec la référence de leur accord. Les autres restent sur le modèle local.</p><div class="xf1">${MON().map(c => `<label>${esc(c.name)}<input type="text" data-kmap="auth" data-mk="${c.id}" value="${esc(s.auth[c.id] || '')}" placeholder="Réf. de l’accord (ex. avenant n°)"></label>`).join('') || '<p class="note">Aucun client supervisé.</p>'}</div><p class="note">Rappel, pas un avis juridique : validation finale par le référent RGPD.</p>`,
+    ok: s => s.ack && s.log && Object.values(s.auth).some(v => v.trim()), sum: s => `${Object.values(s.auth).filter(v => v.trim()).length} client(s) autorisé(s)`});
+  return st; }; }
+for (const p of AIP) { XS[p.id] = aiNew(p); XW[p.id] = aiSteps(p); }
+XS.ollama.url = ai.url; XS.ollama.model = ai.model; XS.ollama.models = null;
+V.ai = () => { const p = AIP.find(x => x.id === ai.prov);
+  return `<h1>Intelligence artificielle</h1><p class="sub">L’IA donne un avis sur les incidents moyens et graves ; elle ne change jamais une note, et les critiques partent sans l’attendre.</p>
+  <section class="panel xcur"><div class="xdh" style="margin:0">${xLogo(p.id, p.name)}<div><h2>${esc(ai.provName())}</h2><p class="sub">Modèle <span class="mono">${esc(ai.model || 'par défaut')}</span> · ${aiCloud() ? `${ai.allowed.length} client(s) autorisé(s), les autres restent en local` : 'aucune donnée ne sort du réseau'}</p></div></div><span class="tag ${aiCloud() ? 'warn' : 'ok'}">${aiCloud() ? 'Hors du réseau' : 'Local'}</span></section>
+  <section class="xsec"><h2>Fournisseurs <small>${AIP.length}</small></h2><div class="xgrid">${AIP.map(x => `<button class="xc" data-aip="${x.id}"><span class="xtop">${xLogo(x.id, x.name)}${ai.prov === x.id ? '<span class="tag ok">Actif</span>' : ''}</span><span><h3>${esc(x.name)}</h3><span class="ty">${esc(x.type)}</span></span><p>${esc(x.desc)}</p><span class="xft"><span>${x.modes.map(m => MODEX[m]).join(' · ')}</span><em>${ai.prov === x.id ? 'Réglages' : 'Choisir'}</em></span></button>`).join('')}</div></section>
+  <section class="panel" style="margin-top:22px"><h2>Journal des appels</h2>${aiLog.length ? `<table class="stack"><thead><tr><th>Heure</th><th>Client</th><th>Incident</th><th>Fournisseur</th><th class="num">Caractères envoyés</th></tr></thead><tbody>${aiLog.slice().reverse().map(l => `<tr><td data-l="Heure" class="mono">${hhmm(l.t)}</td><td data-l="Client">${esc(cName(l.cli))}</td><td data-l="Incident">${esc(l.inc)}</td><td data-l="Fournisseur">${esc(l.p)}</td><td data-l="Caractères" class="num">${l.n}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Aucun appel dans cette session. Ouvrez un incident moyen ou grave pour en déclencher un.</p>'}</section>`; };
+function openAi(id) { extMsg = ''; const p = AIP.find(x => x.id === id);
+  $('#drawer').dataset.key = ''; $('#drawer').classList.add('open'); $('#veil').classList.add('on');
+  xw = {id, step: ai.prov === id ? 'sum' : 0, log: [], ai: true}; xRender(); $('#dClose').focus(); }
+document.addEventListener('click', async e => { const c = e.target.closest('[data-aip]'); if (c) { openAi(c.dataset.aip); return; }
+  if (!xw || !xw.ai || !e.target.closest('#drawer')) return; const p = AIP.find(x => x.id === xw.id), s = XS[xw.id];
+  const m = e.target.closest('[data-xmodels]'); if (m) { m.disabled = true; m.textContent = 'Interrogation…'; xw.err = '';
+    try { s.models = LIVEMODE ? (await aiCall({op: 'models', provider: s.mode === 'local' ? 'ollama' : p.id, key: s.key.trim(), url: s.url})).models : ['modele-demo-1', 'modele-demo-2'];
+      if (!s.models.includes(s.model)) s.model = ''; } catch (err) { s.models = null; xw.err = err.message; } xRender(); return; }
+  const k = e.target.closest('[data-xcli]'); if (k) { k.disabled = true; xw.err = '';
+    try { const r = LIVEMODE ? await aiCall({op: 'cli', tool: k.dataset.xcli}) : {installed: true, version: 'démo'}; if (!r.installed) throw new Error(SUBS[k.dataset.xcli].name + ' n’est pas installé sur la machine du serveur SysLens.'); if (r.logged === false) throw new Error(SUBS[k.dataset.xcli].name + ' est installé mais pas connecté : lancez « ' + SUBS[k.dataset.xcli].login + ' ».'); s.cli = r.version; } catch (err) { xw.err = err.message; } xRender(); } });
+document.addEventListener('change', e => { if (!xw || !xw.ai || !e.target.closest('#drawer')) return; const t = e.target, s = XS[xw.id];
+  if (t.dataset.kset) { s[t.dataset.kset] = t.value; const st = xSteps(xw.id)[xw.step]; if (st && st.reset) st.reset.forEach(r => s[r] = r === 'models' ? null : ''); xOk(); }
+  if (t.dataset.kmap) { s[t.dataset.kmap][t.dataset.mk] = t.value; xOk(); } });
+document.addEventListener('input', e => { if (xw && xw.ai && e.target.dataset.kmap && e.target.closest('#drawer')) { XS[xw.id][e.target.dataset.kmap][e.target.dataset.mk] = e.target.value; xOk(); } });
+function aiSave() { const p = AIP.find(x => x.id === xw.id), s = XS[xw.id];
+  ai.prov = p.id; ai.mode = s.mode; ai.model = s.model; ai.url = s.mode === 'local' ? s.url : ''; ai.allowed = s.mode === 'local' ? [] : Object.keys(s.auth).filter(id => s.auth[id].trim()); }
 // --- détail d'incident
 function openInc(key) {
   const i = incidents().find(x => x.key === key); if (!i) return;
@@ -801,8 +862,8 @@ function openInc(key) {
   let aiBlock;
   if (i.lv === 'critique') aiBlock = `<p class="ai"><b>Alerte envoyée sans attendre l'IA</b> (Telegram + mail, astreinte). Avis ajouté ensuite : ${esc((AI_TXT[i.last.k] || ['','Poste interne concerné identifié par son IP locale ; isolement recommandé.'])[1])}</p>`;
   else { const t = AI_TXT[i.last.k] || ['À vérifier','Pas assez de contexte dans le référentiel pour trancher ; à qualifier par un admin.'];
-    aiBlock = `<p class="ai"><b>${t[0]}</b> — ${esc(t[1])}<br><span class="note">${esc(ai.provName())} · ${esc(ai.model)}${PROV[ai.prov][2] && ai.allowed.includes(i.last.cli) ? ' · données pseudonymisées' : ''} · source citée : ${esc(c ? c.src : 'règle de silence')}</span></p>`;
-    if (!aiLog.some(l => l.key === key)) aiLog.push({key, t: Date.now(), cli: i.last.cli, inc: c ? c.sig : 'Silence', p: PROV[ai.prov][2] && ai.allowed.includes(i.last.cli) ? ai.provName() : PROV.ollama[0], n: 900 + i.list.length * 180}); }
+    aiBlock = `<p class="ai"><b>${t[0]}</b> — ${esc(t[1])}<br><span class="note">${esc(ai.provName())} · ${esc(ai.model)}${aiCloud() && ai.allowed.includes(i.last.cli) ? ' · données pseudonymisées' : ''} · source citée : ${esc(c ? c.src : 'règle de silence')}</span></p>`;
+    if (!aiLog.some(l => l.key === key)) aiLog.push({key, t: Date.now(), cli: i.last.cli, inc: c ? c.sig : 'Silence', p: aiCloud() && ai.allowed.includes(i.last.cli) ? ai.provName() : 'Ollama (local)', n: 900 + i.list.length * 180}); }
   let acc = 0; const segs = i.sc.parts.filter(p => p[1] > 0).map((p, j) => { const w = Math.max(0, Math.min(p[1], 100 - acc)); acc += w;
     return `<span title="${esc(p[0])} : ${p[1]}" style="width:${w}%;background:color-mix(in srgb,var(--c) ${Math.max(35, 100 - j * 18)}%,transparent)"></span>`; }).join('');
   const lift = i.sc.s > acc ? `<span title="Plancher du référentiel" style="width:${i.sc.s - acc}%;background:repeating-linear-gradient(45deg,var(--c) 0 3px,transparent 3px 6px)"></span>` : '';
@@ -856,7 +917,6 @@ document.addEventListener('click', e => {
   if (t.dataset.val || t.dataset.rej) { const c = CAT[t.dataset.val || t.dataset.rej]; if (t.dataset.val) c.st = 'actif'; else catalog.splice(catalog.indexOf(c), 1); render(); return; }
   if (t.dataset.test) { const r = rules[+t.dataset.test], hits = r.k === 'silence' ? devices.filter(d => d.last > SILENCE[d.fam]).length : events.filter(x => x.k === r.k).length;
     const grp = r.k === 'silence' ? hits : incidents().filter(i => i.last.k === r.k).length; $('#rt' + t.dataset.test).textContent = `${hits} événement${hits > 1 ? 's' : ''} correspondant${hits > 1 ? 's' : ''} en 24 h → ${grp} incident${grp > 1 ? 's' : ''}.`; return; }
-  if (t.id === 'aiTest') { const local = !PROV[ai.prov][2]; $('#aiMsg').textContent = 'Démo : aucune requête réelle. En production, appel GET ' + ai.url + (ai.prov === 'ollama' ? '/api/tags' : '/models') + (local ? '' : ' avec données pseudonymisées') + '.'; return; }
 });
 document.addEventListener('change', e => {
   const t = e.target;
@@ -866,12 +926,8 @@ document.addEventListener('change', e => {
   if (t.dataset.rule) rules[+t.dataset.rule].on = t.checked;
   if (t.dataset.base) { CAT[t.dataset.base].base = Math.max(0, Math.min(100, +t.value || 0)); nav(); }
   if (t.id === 'docIn') { for (const f of t.files) docs.push({t: f.name, m: 'à préciser', v: '—', p: f.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'HTML', s: "En file d'indexation", n: 0}); render(); }
-  if (t.id === 'aiProv') { const k = t.value; $('#aiUrl').value = PROV[k][1]; }
 });
 document.addEventListener('input', e => { if (e.target.id === 'lq') { logFilter.q = e.target.value; $('#logbox').innerHTML = logTable(); } });
-document.addEventListener('submit', e => { if (e.target.id !== 'aiForm') return; e.preventDefault();
-  const k = $('#aiProv').value, save = () => { ai.prov = k; ai.url = $('#aiUrl').value; ai.model = $('#aiModel').value; ai.timeout = +$('#aiTo').value; render(); $('#aiMsg').textContent = 'Enregistré.'; };
-  if (PROV[k][2] && !PROV[ai.prov][2]) rgpdModal(save, () => { render(); }); else { if (!PROV[k][2]) ai.allowed = []; save(); } });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal').classList.contains('on')) { closeModal(); render(); } else closeInc(); } });
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-per]'); if (b) { per = +b.dataset.per; render(); return; }

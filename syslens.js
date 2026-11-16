@@ -106,7 +106,7 @@ try { const fe = path.join(DIR, 'events-' + day() + '.jsonl'), fr = path.join(DI
   if (hist.length) console.log('Historique du jour rechargé : ' + hist.length + ' logs');
 } catch (e) {}
 // --- logos d'extension : récupérés une fois sur le site officiel de la marque, puis gardés dans extensions/<id>/
-const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'https://www.cisco.com/site/fr/fr/index.html',
+const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'img:https://upload.wikimedia.org/wikipedia/commons/0/08/Cisco_logo_blue_2016.svg',
   ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://www.claude.com', hermes: 'https://nousresearch.com', grok: 'https://grok.com', 
   // Gemini, Codex, Claude Code et Gemini CLI n'ont pas d'icône propre sur leur site : image directe (collection LobeHub Icons).
   gemini: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini-color.svg', codex: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/codex-color.svg', claudecode: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/claudecode-color.svg', geminicli: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/geminicli-color.svg' }, JSON.parse(process.env.EXT_SITES || '{}'));
@@ -139,6 +139,7 @@ async function saveLogo(id, dir, site, cands) {
   for (const c of cands) { try { const img = await getBytes(c.u, 512e3), ext = LOGO_EXT[img.ct] || (/\.svg(\?|$)/i.test(c.u) ? 'svg' : /\.ico(\?|$)/i.test(c.u) ? 'ico' : '');
       if (!ext || !isImage(img.b, ext)) continue;
       fs.mkdirSync(dir, { recursive: true }); const f = path.join(dir, 'logo.' + ext); fs.writeFileSync(f, img.b);
+      for (const o of Object.values(LOGO_EXT)) if (o !== ext) try { fs.unlinkSync(path.join(dir, 'logo.' + o)); } catch (e) {}
       fs.writeFileSync(path.join(dir, 'source.txt'), `Logo récupéré le ${new Date().toISOString()}\nsur ${img.url}\n(site officiel déclaré : ${site})\nSupprimer ce dossier pour le récupérer à nouveau.\n`);
       try { fs.unlinkSync(path.join(dir, 'logo.fail')); } catch (e) {}
       console.log(`\x1b[32m✓ Logo ${id} installé (${ext}, ${img.b.length} o) depuis ${img.url}\x1b[0m`); return f; } catch (e) {} }
@@ -146,10 +147,13 @@ async function saveLogo(id, dir, site, cands) {
 function extLogo(id, r, fmt) {
   const dir = path.join(__dirname, 'extensions', id), send = f => { r.writeHead(302, { location: '/ext/' + id + '/' + path.basename(f), 'cache-control': 'no-store' }); r.end(); };
   if (fmt) { const f = path.join(dir, 'logo.' + fmt); if (!fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': LOGO_CT[f.split('.').pop()], 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox" }); return fs.createReadStream(f).pipe(r); }
-  const have = logoFile(dir); if (have) return send(have);
-  const fail = path.join(dir, 'logo.fail'); try { if (Date.now() - fs.statSync(fail).mtimeMs < 24 * 3600e3) { r.writeHead(404); return r.end(); } } catch (e) {}
+  // Logo en cache : resservi tel quel, sauf si sa source a changé dans une nouvelle version (il est alors remplacé, l'ancien sert en attendant).
+  const have = logoFile(dir); let src = ''; try { src = fs.readFileSync(path.join(dir, 'source.txt'), 'utf8'); } catch (e) {}
+  const stale = have && EXT_SITES[id] && src && !src.includes('(site officiel déclaré : ' + EXT_SITES[id] + ')');
+  if (have && !stale) return send(have);
+  const fail = path.join(dir, 'logo.fail'); try { if (Date.now() - fs.statSync(fail).mtimeMs < 24 * 3600e3) { if (have) return send(have); r.writeHead(404); return r.end(); } } catch (e) {}
   if (!logoJobs.has(id)) logoJobs.set(id, fetchLogo(id, dir).finally(() => logoJobs.delete(id)));
-  logoJobs.get(id).then(send, err => { if (EXT_SITES[id]) { try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fail, err.message + '\n'); } catch (e) {} console.log(`\x1b[2mLogo ${id} : ${err.message} (nouvel essai dans 24 h)\x1b[0m`); } r.writeHead(404); r.end(); });
+  logoJobs.get(id).then(send, err => { if (EXT_SITES[id]) { try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fail, err.message + '\n'); } catch (e) {} console.log(`\x1b[2mLogo ${id} : ${err.message} (nouvel essai dans 24 h)\x1b[0m`); } if (have) return send(have); r.writeHead(404); r.end(); });
 }
 // --- Telegram : vérification du bot, détection du groupe (/start puis /configurate), message de test
 async function tg(token, method, body) {

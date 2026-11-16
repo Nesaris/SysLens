@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.3.5",
+    "date": "2026-11-16",
+    "points": [
+      "Logo Cisco net (le logo officiel en vectoriel au lieu de la petite icône d’onglet).",
+      "Quand la source d’un logo change dans une nouvelle version, le logo déjà installé est remplacé automatiquement."
+    ]
+  },
+  {
     "version": "0.3.4",
     "date": "2026-11-16",
     "points": [

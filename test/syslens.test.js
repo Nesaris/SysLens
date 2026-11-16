@@ -34,7 +34,7 @@ function envoyer(portSyslog, lignes) {
 function requete(portWeb, chemin, { methode = 'GET', corps, entetes = {} } = {}) {
   return new Promise((ok, ko) => {
     const q = http.request({ host: '127.0.0.1', port: portWeb, path: chemin, method: methode, headers: entetes }, r => {
-      let b = ''; r.on('data', d => b += d); r.on('end', () => { let json = null; try { json = JSON.parse(b); } catch (e) {} ok({ statut: r.statusCode, json, texte: b }); });
+      let b = ''; r.on('data', d => b += d); r.on('end', () => { let json = null; try { json = JSON.parse(b); } catch (e) {} ok({ statut: r.statusCode, json, texte: b, entetes: r.headers }); });
     });
     q.on('error', ko); if (corps) q.write(corps); q.end();
   });
@@ -158,4 +158,21 @@ test('logo d’extension : une page HTML servie à l’adresse de l’icône est
   assert.equal(r.statut, 302);
   assert.ok(fs.existsSync(path.join(s.dossier, 'extensions', 'essai', 'logo.png')));
   assert.ok(!fs.existsSync(path.join(s.dossier, 'extensions', 'essai', 'logo.svg')));
+});
+
+test('logo d’extension : remplacé quand sa source change dans une nouvelle version', async () => {
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a6a20000000049454e44ae426082', 'hex');
+  const site = http.createServer((q, r) => {
+    if (q.url === '/a.png') { r.writeHead(200, { 'content-type': 'image/png' }); return r.end(png); }
+    if (q.url === '/b.svg') { r.writeHead(200, { 'content-type': 'image/svg+xml' }); return r.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>'); }
+    r.writeHead(404); r.end(); });
+  await new Promise(r => site.listen(0, '127.0.0.1', r)); after(() => site.close());
+  const base = 'http://127.0.0.1:' + site.address().port, ext = d => path.join(d, 'extensions', 'essai');
+  const s1 = await demarrer({ EXT_SITES: JSON.stringify({ essai: 'img:' + base + '/a.png' }) });
+  assert.equal((await requete(s1.web, '/ext/essai/logo')).statut, 302); assert.ok(fs.existsSync(path.join(ext(s1.dossier), 'logo.png')));
+  s1.proc.kill(); await attendre(200);
+  const s2 = await demarrer({ EXT_SITES: JSON.stringify({ essai: 'img:' + base + '/b.svg' }) }, s1.dossier);
+  const r = await requete(s2.web, '/ext/essai/logo');
+  assert.equal(r.statut, 302); assert.match(r.entetes.location, /logo\.svg$/);
+  assert.ok(!fs.existsSync(path.join(ext(s1.dossier), 'logo.png')));
 });

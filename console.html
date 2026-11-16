@@ -93,6 +93,7 @@ em.b-crit{background:var(--crit);color:#fff}em.b-warn{background:color-mix(in sr
 .lnk{background:none;border:0;color:var(--acc);font:inherit;font-size:13.5px;cursor:pointer;padding:6px 4px;min-height:32px}.lnk:hover{text-decoration:underline}
 .xtest .prog{margin-bottom:10px}
 .xwait{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px dashed var(--line2);border-radius:10px;font-size:14px}.xwait i{width:16px;height:16px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--acc);animation:spin .8s linear infinite;flex:none}.xwait .lnk{margin-left:auto}
+.xnews{margin:0;padding-left:18px;display:grid;gap:4px;font-size:14px}
 .updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--acc);border-radius:12px;padding:10px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
 .xsum{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
 .xsec{margin-top:22px}.xsec>h2{display:flex;align-items:baseline;gap:8px;margin:0 0 10px;font-size:15px;font-weight:600}.xsec>h2 small{font:12px var(--mono);color:var(--mute);font-weight:400}
@@ -1052,6 +1053,7 @@ function updPanel() {
   return `<h2 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Mises à jour <span class="tag ${st[1]}">${st[0]}</span></h2>
   <dl class="kv"><dt>Version installée</dt><dd class="mono">${esc(UPD.version)}</dd><dt>Dernière release</dt><dd class="mono">${esc(UPD.latest || '—')}</dd><dt>Dépôt</dt><dd class="mono">github.com/${esc(UPD.repo)}</dd><dt>Mise à jour auto</dt><dd>${UPD.auto ? 'Activée · vérification toutes les heures' : 'Désactivée (SYSLENS_AUTOUPDATE=0)'}</dd><dt>Dernière vérification</dt><dd>${fdt(UPD.checkedAt)}</dd></dl>
   ${UPD.state === 'error' ? `<p class="note" style="color:var(--crit)">${esc(UPD.msg)}</p>` : ''}${updMsg ? `<p class="note">${esc(updMsg)}</p>` : ''}
+  ${(UPD.news || []).length ? `<details style="margin-top:12px"${UPD.news[0].version === UPD.version.replace(/^v/, '') ? ' open' : ''}><summary class="note" style="cursor:pointer">Nouveautés</summary>${UPD.news.map(n => `<p style="margin:10px 0 4px"><b class="mono">v${esc(n.version)}</b> <span class="note">${esc(n.date)}</span></p><ul class="xnews">${n.points.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}</details>` : ''}
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" data-upd="check">Vérifier maintenant</button>${UPD.state === 'available' ? `<button class="btn p" data-upd="install">Installer ${esc(UPD.latest)}</button>` : ''}</div>`; }
 async function updLoad() { try { UPD = await (await fetch('/api/version', {cache: 'no-store'})).json(); } catch (e) {} if ($('#updPanel')) $('#updPanel').innerHTML = updPanel(); }
 document.addEventListener('click', async e => { const b = e.target.closest('[data-upd]'); if (!b) return; b.disabled = true; updMsg = b.dataset.upd === 'install' ? 'Installation en cours, la console se rechargera toute seule.' : '';

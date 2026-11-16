@@ -1,59 +1,71 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="medias/logo-sombre.svg">
+    <img src="medias/logo-clair.svg" alt="SysLens" height="56">
+  </picture>
+</p>
+
+<p align="center"><img src="medias/affiche.png" alt="Banner — SysLens" width="100%"></p>
+
 # SysLens
 
-Collecte les logs des équipements réseau, les trie par gravité et les affiche dans une console web. Pensé pour les équipes qui gèrent le réseau de nombreux clients.
+**Collects the logs of every network device you manage, scores each one from 0 to 100 and groups them into incidents, with the calculation shown. Zyxel first, other vendors as extensions.**
 
-- **Zyxel d'abord** : pare-feux ZLD et uOS (USG FLEX, ATP), switchs, bornes, Nebula. Cisco, Ubiquiti et Fortinet viendront sous forme d'extensions.
-- **Tri déterministe** : chaque log reçoit un score de 0 à 100 (bénin, moyen, grave, critique), et le calcul est affiché pour chaque incident.
-- **IA locale en option** (Ollama) pour donner un avis sur les incidents moyens et graves. Les critiques partent sans attendre le modèle.
-- **Extensions** : constructeurs, CRM (Odoo) et notifications (Telegram, mail), configurées pas à pas.
-- **Zéro dépendance** : Node.js 20 ou plus, un fichier serveur, un fichier console.
+<p align="center">
 
-## Démarrer
+[![Stars](https://img.shields.io/github/stars/Nesaris/SysLens?style=flat&logo=github&label=stars)](https://github.com/Nesaris/SysLens/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+![Zero npm dependencies](https://img.shields.io/badge/npm%20dependencies-0-brightgreen)
+![Self-updating](https://img.shields.io/badge/updates-automatic-informational)
+![Self-hosted](https://img.shields.io/badge/self--hosted-yes-orange)
 
-```sh
-git clone https://github.com/Nesaris/syslens.git && cd syslens
-node syslens.js
+</p>
+
+<p align="center"><a href="README.fr.md">🇫🇷 Documentation complète en français</a> · <a href="https://nesaris.github.io">Nesaris Network</a></p>
+
+## Why SysLens?
+
+When you look after the network of dozens or hundreds of clients, the logs are there, but nobody reads them. SysLens reads them for you: it keeps what matters, tells you how serious it is and why, and stays quiet about the rest.
+
+## Features
+
+- **Deterministic scoring.** A reference catalogue built from the vendor documentation, plus fixed modifiers (head-end firewall, public source, repetition, out-of-hours, correlation across clients). Same input, same score, and every incident shows how its score was computed.
+- **Zyxel first.** ZLD and uOS firewalls (USG FLEX, ATP), switches, access points and Nebula. CEF and plain syslog, UDP and TCP.
+- **AI of your choice, never in charge.** A local model (Ollama) gives an opinion on medium and serious incidents; critical ones are sent without waiting for it. A GDPR warning blocks cloud AI until each client has authorised it.
+- **Built for large fleets.** Clients come from your CRM (Odoo extension, with import rules), the client picker scales to thousands, and silent devices raise an incident.
+- **Extensions.** Vendors, CRM and notifications (Telegram, mail) plug in through a manifest and are configured step by step.
+- **Updates itself.** Every hour it checks this repository's releases, verifies each file against `SHA256SUMS`, test-starts the new version, keeps the previous one and restarts.
+
+## Screenshots
+
+<table>
+<tr><td align="center" width="50%"><img src="medias/capture-accueil.png" alt="Overview"><br><sub>Overview</sub></td><td align="center" width="50%"><img src="medias/capture-incident.png" alt="Incident and score breakdown"><br><sub>Incident and score breakdown</sub></td></tr>
+<tr><td align="center" width="50%"><img src="medias/capture-logs.png" alt="Log stream"><br><sub>Log stream</sub></td><td align="center" width="50%"><img src="medias/capture-extensions.png" alt="Extensions"><br><sub>Extensions</sub></td></tr>
+<tr><td align="center" width="50%"><img src="medias/capture-configuration.png" alt="Step-by-step configuration"><br><sub>Step-by-step configuration</sub></td></tr>
+</table>
+
+## Quick start
+
+```bash
+git clone https://github.com/Nesaris/SysLens && cd SysLens
+ALLOW=192.168.1.0/24 node syslens.js     # only accept logs from your devices
 ```
 
-Ensuite, ouvrez la console sur <http://localhost:8514/console>.
+Then open <http://localhost:8514/console>. On the Zyxel side: *Log & Report → Log Settings → Remote Server*, format **CEF/Syslog**, port 514.
 
-Le port 514 demande des droits sur Linux. Sur macOS, il fonctionne tel quel en écoute sur toutes les interfaces. Pour n'accepter que les logs de vos équipements :
+Full documentation (settings, Zyxel configuration, updates, data) is in **[README.fr.md](README.fr.md)** (French).
 
-```sh
-ALLOW=10.10.10.49/32,192.168.1.0/24 node syslens.js
-```
+## Part of Nesaris Network
 
-| Variable | Rôle | Défaut |
-|---|---|---|
-| `PORT` | Port syslog (UDP et TCP) | `514` |
-| `WEB` | Port de la console (écoute sur 127.0.0.1 seulement) | `8514` |
-| `ALLOW` | Sources autorisées, en CIDR séparés par des virgules | toutes |
-| `SYSLENS_AUTOUPDATE` | `0` pour couper la mise à jour automatique | activée |
+SysLens is one of the self-hosted tools of **[Nesaris Network](https://nesaris.github.io)**. It runs on Node.js with **zero npm dependencies**.
 
-## Côté Zyxel
+Other projects: [Hub](https://github.com/Nesaris/Hub) · [Vigie](https://github.com/Nesaris/Vigie) · [MapMyLAN](https://github.com/Nesaris/MapMyLAN) · [NexArc](https://github.com/Nesaris/NexArc) · [ProxLab](https://github.com/Nesaris/ProxLab) · [Relay](https://github.com/Nesaris/Relay) · [Nesmail](https://github.com/Nesaris/Nesmail) · [Synapse](https://github.com/Nesaris/Synapse) · [Dialekt](https://github.com/Nesaris/Dialekt)
 
-Dans le pare-feu : Configuration > Log & Report > Log Settings > Remote Server. Format **CEF/Syslog**, adresse de la machine SysLens, port 514, facility Local 1, catégories en « normal ».
+## Contributing
 
-## Mises à jour
+Issues and pull requests are welcome. If SysLens is useful to you, a ⭐ helps a lot — it's how other people find the project.
 
-SysLens vérifie les releases de ce dépôt toutes les heures. Quand une nouvelle version est publiée, il :
+## License
 
-1. télécharge les fichiers de la release et vérifie chacun avec `SHA256SUMS` ;
-2. lance la nouvelle version en test (`--selftest`) avant de toucher à quoi que ce soit ;
-3. garde l'ancienne version dans `.previous/`, remplace les fichiers et redémarre.
-
-Les logs et les réglages locaux ne sont jamais touchés. Pour revenir en arrière, copiez le contenu de `.previous/` à la place des fichiers, puis relancez.
-
-Pour publier une version (mainteneurs) :
-
-```sh
-./release.sh 0.2.0 "Ce qui change"
-```
-
-## Données
-
-Les logs restent sur la machine, dans `logs/`. Ce dossier ne doit jamais être poussé sur le dépôt : il contient des adresses IP et des identifiants de vos clients.
-
-## Licence
-
-MIT
+[MIT](LICENSE) — made by [CodeX64](https://codexx64.github.io).

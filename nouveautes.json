@@ -1,0 +1,21 @@
+[
+  {
+    "version": "0.2.0",
+    "date": "2026-11-16",
+    "points": [
+      "Le dépôt suit les conventions de Nesaris Network : README en anglais, documentation complète en français, logo, captures, vérifications automatiques à chaque poussée.",
+      "La page Administration affiche les nouveautés de chaque version.",
+      "Des essais couvrent la réception syslog, la note de gravité, le filtre des sources et la mise à jour automatique."
+    ]
+  },
+  {
+    "version": "0.1.0",
+    "date": "2026-11-16",
+    "points": [
+      "Récepteur syslog Zyxel (CEF et syslog, UDP et TCP) et console web.",
+      "Tri par gravité de 0 à 100, avec le détail du calcul pour chaque incident.",
+      "Extensions Zyxel, Odoo, Telegram et mail, configurées pas à pas ; logos récupérés une fois sur le site de chaque marque.",
+      "Mise à jour automatique depuis les releases GitHub, fichiers vérifiés par empreinte."
+    ]
+  }
+]

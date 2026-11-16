@@ -158,7 +158,7 @@ async function tgApi(q) {
   throw new Error('Opération inconnue.'); }
 const sameOrigin = q => { const o = q.headers.origin; return (!o || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o)) && /application\/json/.test(q.headers['content-type'] || ''); };
 const webSrv = http.createServer((q, r) => {
-  if (q.url === '/api/version') { r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(upd)); }
+  if (q.url === '/api/version') { let news = []; try { news = JSON.parse(fs.readFileSync(path.join(__dirname, 'nouveautes.json'), 'utf8')).slice(0, 5); } catch (e) {} r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ ...upd, news })); }
   else if (q.url === '/api/update' && q.method === 'POST') { const json = o => { r.writeHead(sameOrigin(q) ? 200 : 403, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json({ error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 256) q.destroy(); });
     q.on('end', async () => { let install = false; try { install = !!JSON.parse(body).install; } catch (e) {} json(await checkUpdate(install)); }); }
@@ -177,7 +177,7 @@ const webSrv = http.createServer((q, r) => {
 
 // --- mise à jour automatique : suit les releases GitHub du dépôt (fichiers vérifiés par SHA256SUMS)
 const PKG = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')); } catch (e) { return {}; } })();
-const VERSION = 'v' + String(PKG.version || '0.0.0').replace(/^v/, ''), REPO = process.env.SYSLENS_REPO || (PKG.syslens && PKG.syslens.repo) || 'Nesaris/syslens';
+const VERSION = 'v' + String(PKG.version || '0.0.0').replace(/^v/, ''), REPO = process.env.SYSLENS_REPO || (PKG.syslens && PKG.syslens.repo) || 'Nesaris/SysLens';
 const GH_API = process.env.SYSLENS_GH_API || 'https://api.github.com', GH_RAW = process.env.SYSLENS_GH_RAW || 'https://raw.githubusercontent.com';
 const upd = { version: VERSION, repo: REPO, auto: process.env.SYSLENS_AUTOUPDATE !== '0', latest: null, checkedAt: null, state: 'idle', msg: '' };
 const semv = v => String(v).replace(/^v/, '').split(/[.+-]/).slice(0, 3).map(n => +n || 0), newer = (a, b) => { const x = semv(a), y = semv(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };

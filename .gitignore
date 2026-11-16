@@ -1,9 +1,22 @@
-# données locales : jamais dans le dépôt
-logs/
-logs-*/
-extensions/*/logo.*
-extensions/*/source.txt
-.previous/
+# Données : jamais dans le dépôt (adresses IP et identifiants des clients).
+/logs/
+/logs-*/
+/.previous/
+
+# Logos de marques récupérés sur place, pas redistribués.
+/extensions/*/logo.*
+/extensions/*/source.txt
+/extensions/*/logo.fail
+
+# Secrets.
+.env
+.env.local
+*.key
+*.pem
+
+# Divers.
+node_modules
 *.bak*
 *.out
+*.log
 .DS_Store

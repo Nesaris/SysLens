@@ -144,3 +144,18 @@ test('IA : la liste des modèles d’Ollama passe par le serveur, et une clé co
   assert.equal(ko.statut, 400); assert.match(ko.json.error, /Clé invalide/);
   assert.equal((await requete(s.web, '/api/ai', { methode: 'POST', corps: '{}', entetes: { ...json, origin: 'https://exemple.com' } })).statut, 403);
 });
+
+test('logo d’extension : une page HTML servie à l’adresse de l’icône est écartée au profit d’une vraie image', async () => {
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a6a20000000049454e44ae426082', 'hex');
+  const site = http.createServer((q, r) => {
+    if (q.url === '/') { r.writeHead(200, { 'content-type': 'text/html' }); return r.end('<link rel="icon" type="image/svg+xml" href="/piege.svg"><link rel="apple-touch-icon" href="/vrai.png" sizes="180x180">'); }
+    if (q.url === '/piege.svg') { r.writeHead(200, { 'content-type': 'image/svg+xml' }); return r.end('<!DOCTYPE html><html><body><svg></svg>Vérification anti-robot</body></html>'); }
+    if (q.url === '/vrai.png') { r.writeHead(200, { 'content-type': 'image/png' }); return r.end(png); }
+    r.writeHead(404); r.end(); });
+  await new Promise(r => site.listen(0, '127.0.0.1', r)); after(() => site.close());
+  const s = await demarrer({ EXT_SITES: JSON.stringify({ essai: 'http://127.0.0.1:' + site.address().port }) });
+  const r = await requete(s.web, '/ext/essai/logo');
+  assert.equal(r.statut, 302);
+  assert.ok(fs.existsSync(path.join(s.dossier, 'extensions', 'essai', 'logo.png')));
+  assert.ok(!fs.existsSync(path.join(s.dossier, 'extensions', 'essai', 'logo.svg')));
+});

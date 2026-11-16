@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.3.1",
+    "date": "2026-11-16",
+    "points": [
+      "Les configurations (extensions et IA) s’ouvrent dans une fenêtre au centre de l’écran, plus dans un panneau sur le côté.",
+      "Logos : une page de contrôle anti-robot servie à la place d’une icône est écartée ; les logos de Claude et de Codex sont pris sur des sites qui répondent."
+    ]
+  },
+  {
     "version": "0.3.0",
     "date": "2026-11-16",
     "points": [

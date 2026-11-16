@@ -203,6 +203,8 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--panel2)}
 .raw{font:12px/1.55 var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
 .drawer{position:fixed;inset:0 0 0 auto;width:min(580px,100%);background:var(--panel);border-left:1px solid var(--line2);padding:22px;overflow-y:auto;transform:translateX(100%);transition:transform .2s;z-index:5}
 .drawer.open{transform:none}
+.drawer.pop{inset:auto;left:50%;top:50%;width:min(640px,calc(100% - 32px));max-height:min(86vh,820px);border:1px solid var(--line2);border-radius:16px;padding:26px;box-shadow:0 24px 80px rgba(0,0,0,.45);transform:translate(-50%,-47%);opacity:0;visibility:hidden;transition:transform .18s,opacity .18s,visibility 0s .18s}
+.drawer.pop.open{transform:translate(-50%,-50%);opacity:1;visibility:visible;transition:transform .18s,opacity .18s}
 .veil{position:fixed;inset:0;background:#000a;display:none;z-index:4}.veil.on{display:block}
 .sbar{position:relative;height:12px;border-radius:6px;background:var(--panel2);display:flex;overflow:hidden;margin:14px 0 6px}
 .sbar span{height:100%;border-right:2px solid var(--panel)}
@@ -245,7 +247,7 @@ tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation
 .link{background:none;border:0;color:var(--acc);cursor:pointer;padding:6px 0;font-size:14px}
 @media (prefers-reduced-motion:reduce){.prog .p-run i{animation:none;border-top-color:var(--line2)}tr.newrow td{animation:none}}
 @media(max-width:640px){.kpis{grid-template-columns:1fr 1fr}}
-@media (prefers-reduced-motion:reduce){.drawer{transition:none}.xwait i{animation:none}}
+@media (prefers-reduced-motion:reduce){.drawer,.drawer.pop,.drawer.pop.open{transition:none}.xwait i{animation:none}}
 @media(max-width:1280px){.ov{grid-template-columns:1fr}.ovside{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:980px){.app,.app.mini{grid-template-columns:1fr}.side{position:static;height:auto}nav{flex-direction:row;flex-wrap:wrap;gap:4px}.grp{flex-direction:row;flex-wrap:wrap}.grp>p,.fold,.health,.me{display:none}nav a.on::before{display:none}.ext{grid-template-columns:1fr}
  .ovmain{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"g g" "logs logs" "line dots" "tbl tbl"}.ovside{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.form{grid-template-columns:1fr}.top{position:static;flex-wrap:wrap}.search{flex-basis:100%;max-width:none}.top select{min-width:0;flex:1}}
@@ -760,7 +762,7 @@ function xRender() { const x = xItem(xw.id), s = XS[x.id], W = xSteps(x.id);
     `<div class="wnav"><button class="btn" data-xback>${i === 0 ? 'Annuler' : 'Retour'}</button><button class="btn p" id="xNext" data-xnext ${!last && !st.ok(s) ? 'disabled' : ''}>${last ? 'Enregistrer' : 'Continuer'}</button></div>`;
   const f = $('#drawer .xbody input:not([type=checkbox]), #drawer .xbody select'); if (f && !reduce()) f.focus({preventScroll: true}); }
 function openExt(id) { extMsg = '';
-  $('#drawer').dataset.key = ''; $('#drawer').classList.add('open'); $('#veil').classList.add('on');
+  $('#drawer').dataset.key = ''; $('#drawer').classList.add('pop', 'open'); $('#veil').classList.add('on');
   if (id === 'new') { $('#drawer').innerHTML = `<button class="btn" id="dClose" style="float:right">Fermer</button>` + newExtPanel(); $('#dClose').focus(); return; }
   const x = EXT.find(e => e.id === id);
   if (x.st === 'soon' || !XW[id]) { $('#drawer').innerHTML = xHead(x, `${esc(x.type)} · ${ST[x.st][0]}`) + `<p style="margin:14px 0 0">${esc(x.desc)}</p><div class="fs"><p class="sub">Une extension Constructeur fournit <span class="mono">detect</span>, <span class="mono">parse</span>, <span class="mono">pull</span>, <span class="mono">catalog</span> et <span class="mono">rules</span>. Elle s'installera ici comme Zyxel, avec sa propre configuration pas à pas.</p></div>`; $('#dClose').focus(); return; }
@@ -840,7 +842,7 @@ V.ai = () => { const p = AIP.find(x => x.id === ai.prov);
   <section class="xsec"><h2>Fournisseurs <small>${AIP.length}</small></h2><div class="xgrid">${AIP.map(x => `<button class="xc" data-aip="${x.id}"><span class="xtop">${xLogo(x.id, x.name)}${ai.prov === x.id ? '<span class="tag ok">Actif</span>' : ''}</span><span><h3>${esc(x.name)}</h3><span class="ty">${esc(x.type)}</span></span><p>${esc(x.desc)}</p><span class="xft"><span>${x.modes.map(m => MODEX[m]).join(' · ')}</span><em>${ai.prov === x.id ? 'Réglages' : 'Choisir'}</em></span></button>`).join('')}</div></section>
   <section class="panel" style="margin-top:22px"><h2>Journal des appels</h2>${aiLog.length ? `<table class="stack"><thead><tr><th>Heure</th><th>Client</th><th>Incident</th><th>Fournisseur</th><th class="num">Caractères envoyés</th></tr></thead><tbody>${aiLog.slice().reverse().map(l => `<tr><td data-l="Heure" class="mono">${hhmm(l.t)}</td><td data-l="Client">${esc(cName(l.cli))}</td><td data-l="Incident">${esc(l.inc)}</td><td data-l="Fournisseur">${esc(l.p)}</td><td data-l="Caractères" class="num">${l.n}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Aucun appel dans cette session. Ouvrez un incident moyen ou grave pour en déclencher un.</p>'}</section>`; };
 function openAi(id) { extMsg = ''; const p = AIP.find(x => x.id === id);
-  $('#drawer').dataset.key = ''; $('#drawer').classList.add('open'); $('#veil').classList.add('on');
+  $('#drawer').dataset.key = ''; $('#drawer').classList.add('pop', 'open'); $('#veil').classList.add('on');
   xw = {id, step: ai.prov === id ? 'sum' : 0, log: [], ai: true}; xRender(); $('#dClose').focus(); }
 document.addEventListener('click', async e => { const c = e.target.closest('[data-aip]'); if (c) { openAi(c.dataset.aip); return; }
   if (!xw || !xw.ai || !e.target.closest('#drawer')) return; const p = AIP.find(x => x.id === xw.id), s = XS[xw.id];
@@ -875,7 +877,7 @@ function openInc(key) {
   ${c ? `<h2 style="margin-top:20px">Référentiel</h2><dl class="kv"><dt>Signification</dt><dd>${esc(c.mean)}</dd><dt>Action</dt><dd>${esc(c.act)}</dd><dt>Source</dt><dd>${esc(c.src)}</dd></dl>` : ''}
   ${i.list.length ? `<h2 style="margin-top:20px">Événements liés (${i.list.length})</h2><div class="raw">${i.list.slice(-6).map(e => esc(e.raw)).join('\n')}</div>` : ''}
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px"><button class="btn" data-st="acquitté">Acquitter</button><button class="btn" data-st="clos">Clore</button><button class="btn p" id="odoo">Créer le ticket Odoo</button></div><p id="dMsg" class="sub" style="margin-top:8px"></p>`;
-  $('#drawer').classList.add('open'); $('#veil').classList.add('on'); $('#drawer').dataset.key = key; $('#dClose').focus();
+  $('#drawer').classList.remove('pop'); $('#drawer').classList.add('open'); $('#veil').classList.add('on'); $('#drawer').dataset.key = key; $('#dClose').focus();
 }
 function closeInc() { if (xw) xw.polling = false; $('#drawer').classList.remove('open'); $('#veil').classList.remove('on'); }
 // --- avertissement RGPD
@@ -902,7 +904,7 @@ function closeModal() { $('#modal').classList.remove('on'); $('#veil').classList
 function render() { nav(); let h = V[route()]();
   if (fCli && !devices.some(d => d.cli === fCli)) h = `<p class="ai" style="margin-bottom:16px"><b>${esc(cName(fCli))}</b> n'a encore aucun équipement rattaché. Installez un collecteur sur son site, ou associez son organisation Nebula, depuis Paramètres > Extensions.</p>` + h;
   $('#view').innerHTML = h; }
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => { if ($('#drawer').classList.contains('open')) closeInc(); render(); });
 document.addEventListener('click', e => {
   const t = e.target, row = t.closest('[data-inc]'), ev = t.closest('[data-ev]'), lv = t.closest('[data-lv]');
   if (lv) incFilter = lv.dataset.lv === 'benin' ? '' : lv.dataset.lv;

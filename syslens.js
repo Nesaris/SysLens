@@ -107,13 +107,21 @@ try { const fe = path.join(DIR, 'events-' + day() + '.jsonl'), fr = path.join(DI
 } catch (e) {}
 // --- logos d'extension : récupérés une fois sur le site officiel de la marque, puis gardés dans extensions/<id>/
 const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'https://www.cisco.com/site/fr/fr/index.html',
-  ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://claude.ai', hermes: 'https://nousresearch.com', grok: 'https://grok.com', codex: 'https://openai.com/codex/', claudecode: 'https://www.claude.com/product/claude-code' }, JSON.parse(process.env.EXT_SITES || '{}'));
+  ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://www.claude.com', hermes: 'https://nousresearch.com', grok: 'https://grok.com', codex: 'https://chatgpt.com/codex', claudecode: 'https://www.claude.com/product/claude-code' }, JSON.parse(process.env.EXT_SITES || '{}'));
 const LOGO_EXT = { 'image/svg+xml': 'svg', 'image/png': 'png', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const LOGO_CT = Object.fromEntries(Object.entries(LOGO_EXT).map(([c, e]) => [e, c]));
 const logoJobs = new Map();
 const logoFile = dir => { try { const have = fs.readdirSync(dir), f = ['svg', 'png', 'webp', 'jpg', 'ico'].map(e => 'logo.' + e).find(n => have.includes(n)); return f && path.join(dir, f); } catch (e) { return null; } };
 async function getBytes(url, max) { const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'SysLens/0.1 (extension logo)' } });
   if (!r.ok) throw new Error('HTTP ' + r.status); const b = Buffer.from(await r.arrayBuffer()); if (b.length > max) throw new Error('trop gros'); return { b, url: r.url, ct: (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase() }; }
+// Le contenu doit être une vraie image : un site protégé renvoie parfois une page HTML à l'adresse de l'icône.
+function isImage(b, ext) { const head = b.toString('utf8', 0, 4096);
+  if (ext === 'svg') return /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg[\s>]/i.test(head) && !/<html[\s>]/i.test(head);
+  if (ext === 'png') return b.length > 8 && b.readUInt32BE(0) === 0x89504e47;
+  if (ext === 'ico') return b.length > 6 && b.readUInt32BE(0) === 0x00000100;
+  if (ext === 'jpg') return b[0] === 0xff && b[1] === 0xd8;
+  if (ext === 'webp') return b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP';
+  return false; }
 async function fetchLogo(id, dir) {
   const site = EXT_SITES[id]; if (!site) throw new Error('pas de site officiel déclaré');
   const page = await getBytes(site, 3e6), html = page.b.toString('utf8'), cands = [];
@@ -124,7 +132,7 @@ async function fetchLogo(id, dir) {
     cands.push({ u: new URL(href, page.url).href, s: svg ? 1000 : /apple-touch-icon/.test(rel) ? 500 + size : size || 1 }); }
   cands.sort((a, b) => b.s - a.s); cands.push({ u: new URL('/favicon.ico', page.url).href });
   for (const c of cands) { try { const img = await getBytes(c.u, 512e3), ext = LOGO_EXT[img.ct] || (/\.svg(\?|$)/i.test(c.u) ? 'svg' : /\.ico(\?|$)/i.test(c.u) ? 'ico' : '');
-      if (!ext || (ext === 'svg' && !/<svg[\s>]/i.test(img.b.toString('utf8', 0, 4096)))) continue;
+      if (!ext || !isImage(img.b, ext)) continue;
       fs.mkdirSync(dir, { recursive: true }); const f = path.join(dir, 'logo.' + ext); fs.writeFileSync(f, img.b);
       fs.writeFileSync(path.join(dir, 'source.txt'), `Logo récupéré le ${new Date().toISOString()}\nsur ${img.url}\n(site officiel déclaré : ${site})\nSupprimer ce dossier pour le récupérer à nouveau.\n`);
       try { fs.unlinkSync(path.join(dir, 'logo.fail')); } catch (e) {}

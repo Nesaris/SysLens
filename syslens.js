@@ -15,13 +15,17 @@ const COL = { critique: '\x1b[41;97m', grave: '\x1b[33m', moyen: '\x1b[93m', ben
 // Mini-référentiel de départ : à remplacer par les vraies entrées (logs/types.json sert à ça).
 const REF = [
   { k: 'if-stats', cat: /interface statistics/i, base: 10, telemetry: true },
+  { k: 'dhcp', cat: /^dhcp/i, base: 5, telemetry: true },   // baux DHCP : routine
+  // Retour à la normale : bénin, et ferme l'incident « down » du même équipement.
+  { k: 'link-up', re: /(link|port|interface|cable)[^,]*?\b(is up|up!|link up|reconnected|recovered|restored|alive)|status:up\b/i, base: 5, telemetry: true, recovers: ['link-down'] },
+  { k: 'vpn-up', cat: /ike|ipsec|vpn/i, re: /\b(established|is up|connected|reconnected)\b/i, base: 5, telemetry: true, recovers: ['vpn-down'] },
   { k: 'admin-ok', re: /(logged in|login succe|has logged)/i, base: 45, admin: true, pubFloor: 85 },
   { k: 'admin-ko', re: /(fail|incorrect|wrong|invalid).*(login|password|authenticat)|(login|authenticat).*(fail|denied|reject)/i, base: 20, admin: true },
   { k: 'malware', cat: /anti-?malware|sandbox|anti-?virus/i, base: 80, floor: 85 },
   { k: 'iprep', cat: /ip reputation|dns threat|botnet/i, base: 75, floor: 85 },
   { k: 'idp', cat: /^(idp|adp)|intrusion/i, base: 60 },
   { k: 'vpn-down', cat: /ike|ipsec|vpn/i, re: /(down|disconnect|fail|dead peer|timeout|tear)/i, base: 55 },
-  { k: 'link-down', re: /(link|port|interface|cable)[^,]*(down|disconnect)|status:down/i, base: 62 },
+  { k: 'link-down', re: /(link|port|interface|cable)[^,]*(down|disconnect|dead)|status:down/i, base: 62 },
   { k: 'cfg', re: /(configuration|config)[^,]*(chang|modif|save|appl)|has been (changed|modified|applied)/i, base: 35, admin: true },
   { k: 'reboot', re: /(reboot|restart|system (is |has )?(start|boot))/i, base: 45 },
   { k: 'cpu', cat: /system monitoring/i, re: /cpu:(9\d|100)\b|memory:(9\d|100)\b/i, base: 40 }
@@ -61,7 +65,7 @@ const win = new Map();
 function score(ev, ctx = true) {
   const txt = ev.msg + ' ' + ev.name + ' ' + (ev.f.note || '') + ' ' + (ev.f.ZYnote || '');
   const r = REF.find(r => (!r.cat || r.cat.test(ev.cat)) && (!r.re || r.re.test(txt))), parts = [];
-  ev.k = r ? r.k : 'non-reference'; ev.ref = !!(r && !r.telemetry);
+  ev.k = r ? r.k : 'non-reference'; ev.ref = !!(r && !r.telemetry); ev.rec = !!(r && r.recovers);
   let s = r ? r.base : BASE[ev.sev]; parts.push((r ? 'référentiel ' + r.k : 'gravité Zyxel ' + SEV[ev.sev]) + ' ' + s);
   if (r && !r.telemetry && /USG|ATP|FLEX|ZyWALL|VPN/i.test(ev.product)) { s += 10; parts.push('pare-feu de tête +10'); }
   if (r && r.admin && isPublic(ev.src)) { s += 15; parts.push('IP publique +15'); }
@@ -73,6 +77,8 @@ function score(ev, ctx = true) {
     if (ev.k === 'admin-ko' && n >= 10) { s = Math.max(s, 60); parts.push('règle force brute'); }
   }
   if (r && r.pubFloor && isPublic(ev.src)) { s = Math.max(s, r.pubFloor); parts.push('admin depuis le WAN : critique'); }
+  // Un type pas encore au référentiel ne réveille pas l'astreinte : le niveau annoncé par l'équipement n'est pas assez fiable.
+  if (!r && s > 75) { s = 75; parts.push('type non référencé : grave au plus'); }
   s = Math.min(100, Math.max(r && r.floor || 0, s, 0)); ev.score = s; ev.level = level(s); ev.why = parts.join(' · ');
 }
 // Fenêtre de répétition : les sources silencieuses depuis 5 min sont oubliées (sinon les scans d'Internet la font grossir sans fin).
@@ -101,7 +107,7 @@ function stage1(line, from) {
   d.count++; d.last = ev.t; if (ev.product) { d.product = ev.product; d.ver = ev.ver; }
   const tk = (ev.cat || '?') + ' | ' + (ev.name || ev.msg.slice(0, 60)); let ty = typeDelta.get(tk);
   if (!ty) typeDelta.set(tk, ty = { key: tk, cat: ev.cat, name: ev.name, count: 0, sev: SEV[ev.sev], k: ev.k, example: line }); ty.count++;
-  if (ev.ref || ev.level !== 'benin') emit(ev, false); else if (budget > 0) { budget--; emit(ev, true); }
+  if (ev.ref || ev.rec || ev.level !== 'benin') emit(ev, false); else if (budget > 0) { budget--; emit(ev, true); }
 }
 function emit(ev, sample) { if (cluster.isWorker) outBuf.push([ev, sample]); else stage2(ev, sample); }
 function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); return p; }
@@ -132,18 +138,24 @@ function stage2(ev, sample, replay) {
   recent.push(ev); if (recent.length > 300) recent.shift();
   if (sample) return SHOW_BENIN && !WORKERS && console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL.benin}BENIN   ${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
   if (!replay) evOut(JSON.stringify(ev));
-  if (ev.level !== 'benin') incident(ev);
+  if (ev.level !== 'benin') incident(ev); else if (ev.rec) recover(ev);
   if (!replay) console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL[ev.level]}${ev.level.toUpperCase().padEnd(8)}${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
 }
 // Incidents agrégés côté serveur : un par (type, équipement, source), gardés 7 jours après le dernier événement.
 function incident(ev) {
   const key = ev.k + '|' + ev.dev + '|' + ev.src; let I = incidents.get(key);
   if (I) incidents.delete(key); else I = { key, k: ev.k, dev: ev.dev, from: ev.from, host: ev.host, product: ev.product, src: ev.src, cat: ev.cat, first: ev.t, count: 0, score: 0, level: 'benin', samples: [] };
-  I.count++; I.last = ev.t; I.msg = ev.msg; I.why = ev.why; if (ev.score >= I.score) { I.score = ev.score; I.level = ev.level; }
+  I.count++; I.last = ev.t; I.msg = ev.msg; I.why = ev.why; I.status = 'ouvert'; I.resolved = null; if (ev.score >= I.score) { I.score = ev.score; I.level = ev.level; }
+  const tk = portTok(ev.msg); if (tk) { I.toks = I.toks || []; if (!I.toks.includes(tk)) I.toks.push(tk); }
   I.samples.push(ev.raw); if (I.samples.length > 5) I.samples.shift(); incidents.set(key, I);
   if (incidents.size > 50000) incidents.delete(incidents.keys().next().value);
 }
 setInterval(() => { const lim = Date.now() - 7 * 864e5; for (const [k, I] of incidents) if (I.last < lim) incidents.delete(k); }, 600e3).unref();
+// « Port 3 is down » puis « Port 3 is up » : l'incident est marqué résolu tout seul (il se rouvre si le lien retombe).
+const portTok = m => { const x = String(m || '').match(/\b(port\s*\d+|lan\d+|wan\d*|ge\d+|opt\d*|eth\d+)\b/i); return x ? x[1].toLowerCase().replace(/\s+/g, '') : ''; };
+function recover(ev) { const r = REF.find(x => x.k === ev.k), tk = portTok(ev.msg);
+  for (const I of incidents.values()) if (I.dev === ev.dev && r && r.recovers.includes(I.k) && I.status !== 'résolu' && I.last <= ev.t && (!tk || !I.toks || I.toks.includes(tk))) {
+    I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; } }
 function mergeStats(p) {
   total += p.n; rate += p.n;
   for (const x of p.devs) { let d = devices.get(x.key);
@@ -178,7 +190,9 @@ go();setInterval(go,2000);</script></html>`;
 try { const fe = path.join(DIR, 'events-' + day() + '.jsonl');
   // Le fichier du jour ne garde que les événements utiles (avec leur ligne brute) : rechargement rapide même à fort débit.
   for (const l of fs.readFileSync(fe, 'utf8').split('\n')) { if (!l) continue; let e; try { e = JSON.parse(l); } catch (x) { continue; }
-    if (!allowed(e.from)) continue; e.raw = e.raw || ''; e.f = e.f || {}; e.dev = e.dev || e.from + '|' + (e.host || ''); stage2(e, false, true);
+    if (!allowed(e.from)) continue;
+    if (e.raw) { const t = e.t; e = parse(e.raw, e.from); e.t = t; } else { e.raw = ''; e.f = e.f || {}; e.msg = e.msg || ''; e.name = e.name || ''; e.cat = e.cat || ''; }
+    e.dev = devKey(e); score(e, false); stage2(e, false, true);
     let d = devices.get(e.dev); if (!d) devices.set(e.dev, d = { key: e.dev, from: e.from, host: e.host, product: e.product, ver: e.ver, fmt: e.fmt, first: e.t, count: 0 }); d.last = e.t; d.count++; }
   if (hist.length) console.log('Historique du jour rechargé : ' + hist.length + ' événements utiles');
 } catch (e) {}

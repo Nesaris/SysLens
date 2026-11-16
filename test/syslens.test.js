@@ -233,3 +233,20 @@ test('switch Zyxel en syslog à horodatage ISO : nom, modèle, source et utilisa
   assert.equal(ev[0].host, 'XMG1915'); assert.equal(ev[0].product, 'XMG1915'); assert.equal(ev[0].k, 'admin-ko');
   assert.equal(ev[0].src, '192.168.1.33'); assert.equal(ev[0].user, 'essai');
 });
+
+test('classement : retour à la normale, plafond des types inconnus, DHCP de routine', async () => {
+  const s = await demarrer();
+  await envoyer(s.syslog, [
+    cef('System', 1, 'msg=Port 3 is down! cat=System ZYlevel=alert'),
+    cef('Policy Route', 1, 'msg=Interface lan1 dead, related policy route rules will be disabled. cat=Policy Route ZYlevel=alert'),
+    cef('DHCP', 6, 'msg=DHCP server assigned 192.168.1.34 to XMG1915(70:49:A2:21:D0:6D) act=DHCP ACK cat=DHCP ZYlevel=info'),
+    cef('Inconnu', 1, 'msg=Quelque chose de jamais vu cat=Inconnu ZYlevel=alert')]);
+  await attendre(300);
+  await envoyer(s.syslog, [cef('System', 1, 'msg=Port 3 is up! cat=System ZYlevel=alert')]);
+  let inc; for (let i = 0; i < 20; i++) { await attendre(100); inc = (await requete(s.web, '/api/incidents')).json.incidents; if (inc.some(x => x.status === 'résolu')) break; }
+  const lien = inc.find(x => x.k === 'link-down'); assert.equal(lien.count, 2, '« lan1 dead » rejoint l’incident du port tombé'); assert.equal(lien.status, 'résolu');
+  const inconnu = inc.find(x => x.k === 'non-reference'); assert.equal(inconnu.score, 75); assert.equal(inconnu.level, 'grave');
+  assert.ok(!inc.some(x => x.level === 'critique'), 'aucune fausse alerte critique');
+  const ev = await evenements(s.web); assert.equal(ev.find(e => /Port 3 is up/.test(e.msg)).level, 'benin');
+  assert.ok(!inc.some(x => x.k === 'dhcp'));
+});

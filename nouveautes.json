@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.4.2",
+    "date": "2026-11-16",
+    "points": [
+      "Plus de fausse alerte critique : un type de log pas encore au référentiel est « grave » au plus, quel que soit le niveau annoncé par l'équipement.",
+      "Retour à la normale : « Port 3 is up » ferme tout seul l'incident « Port 3 is down » (il se rouvre si le lien retombe). Même chose pour les tunnels VPN.",
+      "« Interface lan1 dead » rejoint l'incident du port tombé au lieu d'en créer un autre ; les baux DHCP sont de la routine.",
+      "Au redémarrage, l'historique du jour est relu avec les règles actuelles."
+    ]
+  },
+  {
     "version": "0.4.1",
     "date": "2026-11-16",
     "points": [

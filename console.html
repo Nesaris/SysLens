@@ -349,6 +349,9 @@ if (LIVEMODE) catalog.push(
   {k:'sysmon',fam:'Pare-feu',cat:'System Monitoring',sig:'Relevé CPU, mémoire et sessions',base:5,floor:0,quiet:true,mean:'Relevé périodique de charge.',act:'—',src:'Observé sur USG20W-VPN 5.42 (banc de test)',st:'actif'},
   {k:'deny-default',fam:'Pare-feu',cat:'Security Policy Control',sig:'Paquet bloqué par la règle par défaut',base:5,floor:0,quiet:true,mean:"Trafic sans règle explicite, bloqué : comportement normal d'un pare-feu.",act:'En rafale depuis le WAN : regarder la source (scan).',src:'Observé sur USG20W-VPN 5.42 (banc de test)',st:'actif'},
   {k:'link-down',fam:'Toutes',cat:'Interface',sig:'Lien réseau tombé',base:62,floor:0,mean:"Un lien est passé à l'état down.",act:'Vérifier câble, équipement en face et opérateur si WAN.',src:'Mini-référentiel du récepteur de test',st:'actif'},
+  {k:'link-up',fam:'Toutes',cat:'Interface',sig:'Lien rétabli',base:5,floor:0,quiet:true,mean:"Un lien est revenu : ferme l'incident « lien tombé » du même équipement.",act:'Rien à faire.',src:'Mini-référentiel du récepteur de test',st:'actif'},
+  {k:'vpn-up',fam:'Pare-feu',cat:'VPN',sig:'Tunnel VPN rétabli',base:5,floor:0,quiet:true,mean:"Le tunnel est revenu : ferme l'incident « tunnel tombé ».",act:'Rien à faire.',src:'Mini-référentiel du récepteur de test',st:'actif'},
+  {k:'dhcp',fam:'Pare-feu',cat:'DHCP',sig:'Bail DHCP',base:5,floor:0,quiet:true,mean:'Attribution ou libération d’adresse : routine.',act:'Rien à faire.',src:'Mini-référentiel du récepteur de test',st:'actif'},
   {k:'reboot',fam:'Toutes',cat:'System',sig:"Redémarrage de l'équipement",base:45,floor:0,mean:"L'équipement a redémarré.",act:'Vérifier si le redémarrage était prévu (mise à jour, coupure électrique).',src:'Mini-référentiel du récepteur de test',st:'actif'});
 const CAT = Object.fromEntries(catalog.map(c => [c.k,c]));
 const rules = [
@@ -434,6 +437,7 @@ function scoreOf(e, count) {
   if (isPub(e.src) && srcClients(e.src) >= 2) parts.push(['Corrélation : source vue chez ' + srcClients(e.src) + ' clients', 15]);
   if (d.maint) parts.push(['Maintenance déclarée', -30]);
   let s = parts.reduce((a,p) => a + p[1], 0); const floor = c ? c.floor : 0;
+  if (c && c.st === 'nonref' && s > 75) { parts.push(['Plafond : type pas encore au référentiel, grave au plus', 75 - s]); s = 75; }
   s = Math.min(100, Math.max(floor, s, 0)); return {s, parts, floor};
 }
 // --- incidents = regroupements (cahier § 5)
@@ -441,12 +445,14 @@ let incState = {};
 function incidents() {
   const g = {};
   for (const e of events) { const key = e.cli + '|' + e.dev + '|' + e.k + '|' + (isPub(e.src) ? e.src : ''); (g[key] ||= []).push(e); }
-  const out = [];
+  const out = [], up = {};
+  for (const e of events) if (CAT[e.k] && /-up$/.test(e.k)) up[e.dev + '|' + e.k.replace(/-up$/, '-down')] = Math.max(up[e.dev + '|' + e.k.replace(/-up$/, '-down')] || 0, e.t);
   for (const [key, list] of Object.entries(g)) {
     const last = list[list.length - 1], sc = scoreOf(last, list.length), lv = level(sc.s);
     if (lv === 'benin' || (CAT[last.k] && CAT[last.k].quiet) || last.k === 'stp' || last.k === 'dfs' || last.k === 'uos-deny') continue;
     if (last.k === 'auth-ko' && list.length < 20) continue;
-    out.push({key, list, last, sc, lv, st: incState[key] || 'ouvert'});
+    const back = up[last.dev + '|' + last.k] > last.t;   // revenu tout seul : clos automatiquement
+    out.push({key, list, last, sc, lv, auto: back, st: incState[key] || (back ? 'clos' : 'ouvert')});
   }
   for (const d of devices) { const lim = SILENCE[d.fam]; if (d.last > lim) {
     const key = 'silence|' + d.id, sc = {s: 66, parts: [['Règle : équipement silencieux (seuil ' + lim + ' min)', 66]], floor: 0};

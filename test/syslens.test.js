@@ -225,3 +225,11 @@ test('archives : jours passés compressés, au-delà de la rétention supprimés
   assert.ok(!fs.existsSync(path.join(logs, `raw-${j(3)}.log`)));
   assert.ok(!fs.existsSync(path.join(logs, `raw-${j(120)}.log`)), 'au-delà de 90 jours : supprimé');
 });
+
+test('switch Zyxel en syslog à horodatage ISO : nom, modèle, source et utilisateur reconnus', async () => {
+  const s = await demarrer();
+  await envoyer(s.syslog, ['<133> 2026-11-16T16:07:44Z XMG1915 authentication: HTTP(s) authentication failure [username: essai, IP address = 192.168.1.33]']);
+  let ev = []; for (let i = 0; i < 20 && !ev.length; i++) { await attendre(100); ev = await evenements(s.web); }
+  assert.equal(ev[0].host, 'XMG1915'); assert.equal(ev[0].product, 'XMG1915'); assert.equal(ev[0].k, 'admin-ko');
+  assert.equal(ev[0].src, '192.168.1.33'); assert.equal(ev[0].user, 'essai');
+});

@@ -37,6 +37,7 @@ function parse(raw, from) {
   const ev = { t: Date.now(), from, raw, pri, sev: pri & 7, host: '', fmt: 'syslog', product: '', ver: '', cat: '', name: '', msg: '', f: {} };
   const h = rest.match(/^([A-Z][a-z]{2}\s+\d{1,2}\s\d\d:\d\d:\d\d)(?:\s\d{4})?\s(\S+)\s([\s\S]*)$/);
   if (h) { ev.host = h[2].replace(/:$/, ''); rest = h[3]; }
+  else { const i = rest.match(/^\s*(?:1\s)?(\d{4}-\d\d-\d\dT\S+)\s(\S+)\s([\s\S]*)$/); if (i) { ev.host = i[2].replace(/:$/, ''); rest = i[3]; } }   // horodatage ISO (switchs Zyxel, RFC 5424)
   const ci = rest.indexOf('CEF:');
   if (ci >= 0) {
     const c = rest.slice(ci + 4), parts = []; let cur = '', esc = false;
@@ -51,6 +52,8 @@ function parse(raw, from) {
   if (!ev.product && /^(XMG|XGS|XS|GS|MG)\d/i.test(ev.host)) ev.product = ev.host;
   ev.cat = ev.f.cat || ev.name || ''; ev.msg = ev.f.msg || ev.name || rest.trim();
   ev.src = ev.f.src || ''; ev.dst = ev.f.dst || ''; ev.user = ev.f.suser || ev.f.user || '';
+  if (!ev.src) { const x = rest.match(/IP address\s*=\s*([\d.]+)|\bfrom\s+([\d]+\.[\d]+\.[\d]+\.[\d]+)/i); if (x) ev.src = x[1] || x[2]; }
+  if (!ev.user) { const x = rest.match(/user(?:name)?\s*[:=]\s*([^,\]\s]+)/i); if (x) ev.user = x[1]; }
   return ev;
 }
 const win = new Map();

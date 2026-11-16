@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.1",
+    "date": "2026-11-16",
+    "points": [
+      "Les switchs Zyxel qui horodatent leurs logs au format ISO (XMG1915 et autres) sont reconnus : nom, modèle, adresse source et utilisateur."
+    ]
+  },
+  {
     "version": "0.4.0",
     "date": "2026-11-16",
     "points": [

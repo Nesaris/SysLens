@@ -5,11 +5,18 @@
   "private": true,
   "license": "MIT",
   "main": "syslens.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node syslens.js",
     "test": "node --test test/*.test.js"
   },
-  "syslens": { "repo": "Nesaris/SysLens" },
-  "repository": { "type": "git", "url": "https://github.com/Nesaris/SysLens.git" }
+  "syslens": {
+    "repo": "Nesaris/SysLens"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nesaris/SysLens.git"
+  }
 }

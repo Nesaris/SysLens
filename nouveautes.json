@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.3.2",
+    "date": "2026-11-16",
+    "points": [
+      "Gemini rejoint les fournisseurs d’IA : par clé API Google, ou avec un compte Google via Gemini CLI, comme Claude Code.",
+      "Codex, Claude Code et Gemini CLI ont maintenant leur propre logo dans le choix de connexion."
+    ]
+  },
+  {
     "version": "0.3.1",
     "date": "2026-11-16",
     "points": [

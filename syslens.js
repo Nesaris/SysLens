@@ -107,7 +107,9 @@ try { const fe = path.join(DIR, 'events-' + day() + '.jsonl'), fr = path.join(DI
 } catch (e) {}
 // --- logos d'extension : récupérés une fois sur le site officiel de la marque, puis gardés dans extensions/<id>/
 const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'https://www.cisco.com/site/fr/fr/index.html',
-  ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://www.claude.com', hermes: 'https://nousresearch.com', grok: 'https://grok.com', codex: 'https://chatgpt.com/codex', claudecode: 'https://www.claude.com/product/claude-code' }, JSON.parse(process.env.EXT_SITES || '{}'));
+  ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://www.claude.com', hermes: 'https://nousresearch.com', grok: 'https://grok.com', gemini: 'https://gemini.google.com',
+  // Codex, Claude Code et Gemini CLI n'ont pas d'icône propre sur leur site : image directe (collection LobeHub Icons).
+  codex: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/codex-color.svg', claudecode: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/claudecode-color.svg', geminicli: 'img:https://unpkg.com/@lobehub/icons-static-svg@latest/icons/geminicli-color.svg' }, JSON.parse(process.env.EXT_SITES || '{}'));
 const LOGO_EXT = { 'image/svg+xml': 'svg', 'image/png': 'png', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const LOGO_CT = Object.fromEntries(Object.entries(LOGO_EXT).map(([c, e]) => [e, c]));
 const logoJobs = new Map();
@@ -124,6 +126,7 @@ function isImage(b, ext) { const head = b.toString('utf8', 0, 4096);
   return false; }
 async function fetchLogo(id, dir) {
   const site = EXT_SITES[id]; if (!site) throw new Error('pas de site officiel déclaré');
+  if (site.startsWith('img:')) return saveLogo(id, dir, site, [{ u: site.slice(4) }]);
   const page = await getBytes(site, 3e6), html = page.b.toString('utf8'), cands = [];
   for (const tag of html.match(/<link\b[^>]*>/gi) || []) {
     const at = k => (new RegExp('\\b' + k + '\\s*=\\s*["\']([^"\']+)', 'i').exec(tag) || [])[1] || '';
@@ -131,6 +134,8 @@ async function fetchLogo(id, dir) {
     const size = Math.max(0, ...at('sizes').split(/\s+/).map(s => parseInt(s, 10) || 0)), svg = /svg/.test(at('type')) || /\.svg(\?|$)/i.test(href);
     cands.push({ u: new URL(href, page.url).href, s: svg ? 1000 : /apple-touch-icon/.test(rel) ? 500 + size : size || 1 }); }
   cands.sort((a, b) => b.s - a.s); cands.push({ u: new URL('/favicon.ico', page.url).href });
+  return saveLogo(id, dir, site, cands); }
+async function saveLogo(id, dir, site, cands) {
   for (const c of cands) { try { const img = await getBytes(c.u, 512e3), ext = LOGO_EXT[img.ct] || (/\.svg(\?|$)/i.test(c.u) ? 'svg' : /\.ico(\?|$)/i.test(c.u) ? 'ico' : '');
       if (!ext || !isImage(img.b, ext)) continue;
       fs.mkdirSync(dir, { recursive: true }); const f = path.join(dir, 'logo.' + ext); fs.writeFileSync(f, img.b);
@@ -166,9 +171,9 @@ async function tgApi(q) {
   if (q.op === 'send') { await tg(q.token, 'sendMessage', { chat_id: q.chat, text: `SysLens — message de test\nLes alertes de niveau ${String(q.lv || 'critique').slice(0, 60)} arriveront dans ce groupe.` }); return { sent: true }; }
   throw new Error('Opération inconnue.'); }
 // --- IA : liste des modèles (vérifie la clé ou l'adresse Ollama) et présence de Codex / Claude Code
-const AI_API = { chatgpt: ['https://api.openai.com/v1/models', 'bearer'], mistral: ['https://api.mistral.ai/v1/models', 'bearer'], grok: ['https://api.x.ai/v1/models', 'bearer'], hermes: ['https://inference-api.nousresearch.com/v1/models', 'bearer'], claude: ['https://api.anthropic.com/v1/models?limit=100', 'anthropic'] };
+const AI_API = { chatgpt: ['https://api.openai.com/v1/models', 'bearer'], mistral: ['https://api.mistral.ai/v1/models', 'bearer'], grok: ['https://api.x.ai/v1/models', 'bearer'], hermes: ['https://inference-api.nousresearch.com/v1/models', 'bearer'], gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', 'google'], claude: ['https://api.anthropic.com/v1/models?limit=100', 'anthropic'] };
 async function aiApi(q) {
-  if (q.op === 'cli') { const tool = { codex: 'codex', claudecode: 'claude' }[q.tool]; if (!tool) throw new Error('Outil inconnu.');
+  if (q.op === 'cli') { const tool = { codex: 'codex', claudecode: 'claude', geminicli: 'gemini' }[q.tool]; if (!tool) throw new Error('Outil inconnu.');
     const r = cp.spawnSync(tool, ['--version'], { encoding: 'utf8', timeout: 8000 }); if (r.error || r.status !== 0) return { installed: false };
     let logged = null; if (tool === 'codex') logged = cp.spawnSync('codex', ['login', 'status'], { encoding: 'utf8', timeout: 8000 }).status === 0;
     return { installed: true, logged, version: String(r.stdout || r.stderr).trim().split('\n')[0].slice(0, 80) }; }
@@ -177,9 +182,9 @@ async function aiApi(q) {
       const r = await fetch(u, { signal: AbortSignal.timeout(8000) }).catch(() => { throw new Error('Ollama ne répond pas à ' + u.origin + '.'); });
       if (!r.ok) throw new Error('Ollama a répondu ' + r.status + '.'); return { models: ((await r.json()).models || []).map(m => m.name).sort() }; }
     const a = AI_API[q.provider], key = String(q.key || '').trim(); if (!a) throw new Error('Fournisseur inconnu.'); if (key.length < 20 || /\s/.test(key)) throw new Error('Clé invalide.');
-    const r = await fetch(a[0], { headers: a[1] === 'anthropic' ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' } : { authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(10000) }).catch(() => { throw new Error('Le fournisseur ne répond pas.'); });
-    if (r.status === 401 || r.status === 403) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + '.');
-    return { models: ((await r.json()).data || []).map(m => m.id).filter(Boolean).sort() }; }
+    const r = await fetch(a[0], { headers: a[1] === 'anthropic' ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' } : a[1] === 'google' ? { 'x-goog-api-key': key } : { authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(10000) }).catch(() => { throw new Error('Le fournisseur ne répond pas.'); });
+    if (r.status === 401 || r.status === 403 || (a[1] === 'google' && r.status === 400)) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + '.');
+    const j = await r.json(); return { models: (j.data || j.models || []).map(m => m.id || String(m.name || '').replace(/^models\//, '')).filter(Boolean).sort() }; }
   throw new Error('Opération inconnue.'); }
 const sameOrigin = q => { const o = q.headers.origin; return (!o || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o)) && /application\/json/.test(q.headers['content-type'] || ''); };
 const webSrv = http.createServer((q, r) => {

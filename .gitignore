@@ -1,0 +1,9 @@
+# données locales : jamais dans le dépôt
+logs/
+logs-*/
+extensions/*/logo.*
+extensions/*/source.txt
+.previous/
+*.bak*
+*.out
+.DS_Store

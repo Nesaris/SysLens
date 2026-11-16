@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SysLens — console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Ctitle%3ESysLens%3C/title%3E%3Cstyle%3Epath%7Bfill%3A%231A1A1A%7D%40media%20%28prefers-color-scheme%3A%20dark%29%7Bpath%7Bfill%3A%23F4F4F2%7D%7D%3C/style%3E%3Cpath%20d%3D%27M26%203H11A8%208%200%200%200%2011%2019H22A2%202%200%200%201%2022%2023H11V29H22A8%208%200%200%200%2022%2013H11A2%202%200%200%201%2011%209H26ZM2%2026A3%203%200%201%200%208%2026A3%203%200%201%200%202%2026Z%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* VOICE: salle de supervision la nuit : sombre, dense, précise, rien de décoratif qui ne porte une donnée.
+   IDEA: un pupitre d'instruments : jauges graduées, colonnes de volume, matrice de voyants par client.
+   PICTURE: la rangée de jauges + la colonne de volume avec le cadran de risque ; la file d'incidents juste dessous.
+   COLOUR and TYPE: noir vert profond, un seul accent vert ; rouge/orange/jaune réservés aux 4 niveaux ; Geist + Geist Mono.
+   LAYOUT: rail 228 px, barre haute de recherche, grille de cartes + colonne droite événements, pile sous 980 px. */
+:root{color-scheme:light dark;
+--bg:light-dark(#edf1ef,#060a09);--side:light-dark(#f7f9f8,#090e0c);--panel:light-dark(#ffffff,#0c1210);--panel2:light-dark(#f2f5f3,#111915);
+--line:light-dark(#dce3df,#18221e);--line2:light-dark(#cbd5d0,#1f2b26);--ink:light-dark(#0e1915,#e5ede9);--mute:light-dark(#5a6b64,#7a8a83);
+--acc:light-dark(#0c8a55,#3fe08e);--acc-dim:light-dark(#dcf3e7,#0d2619);--on-acc:light-dark(#ffffff,#03170c);
+--crit:light-dark(#c8171d,#ff5a5f);--grav:light-dark(#b4500c,#ff9248);--moy:light-dark(#876a00,#f0c94a);--ben:light-dark(#9aa8a2,#34433d);
+--fw:light-dark(#0c8a55,#3fe08e);--sw:light-dark(#1d6bd0,#58b9ff);--ap:light-dark(#7449d4,#b89cff);
+--mono:'Geist Mono',ui-monospace,Menlo,monospace}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 'Geist',system-ui,sans-serif;overflow-x:clip;font-feature-settings:"tnum"}
+button,input,select{font:inherit;color:inherit}
+a{color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+svg{display:block}
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.app.mini{grid-template-columns:68px minmax(0,1fr)}
+.side{background:var(--side);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:14px;position:sticky;top:0;height:100vh;overflow-y:auto;overflow-x:hidden}
+.brand{display:flex;gap:10px;align-items:center;padding:2px 4px;min-height:40px;flex:none}.brand .logo{flex:none}
+.brand>div{min-width:0;overflow:hidden;display:flex;align-items:center}.brand .logo,.brand .word{color:var(--ink);display:block}.brand .word{width:auto}.brand b{font-size:16px;font-weight:600;letter-spacing:-.01em;display:block;white-space:nowrap}.brand span{font-size:12px;color:var(--mute);white-space:nowrap}
+.fold{margin-left:auto;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:none;display:grid;place-items:center;cursor:pointer;color:var(--mute);flex:none}
+.fold:hover{color:var(--ink);border-color:var(--line2)}
+.scope{display:grid;grid-template-columns:1fr auto;gap:0 8px;align-items:center;width:100%;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel);cursor:pointer;min-height:52px}
+.scope:hover{border-color:var(--line2)}.scope span{font-size:11.5px;color:var(--mute);grid-column:1}
+.scope b{grid-column:1;font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scope kbd,.pick kbd{grid-column:2;grid-row:1/3;font:11px var(--mono);color:var(--mute);border:1px solid var(--line2);border-radius:5px;padding:1px 5px}
+.pick{position:fixed;left:10px;top:118px;width:min(380px,calc(100vw - 20px));background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 18px 50px #0007;z-index:7;display:flex;flex-direction:column;max-height:min(560px,calc(100vh - 140px))}
+.pick[hidden]{display:none}
+.pick .ph{padding:10px;border-bottom:1px solid var(--line)}
+.pick input{width:100%}
+.pl{overflow-y:auto;padding:6px}
+.pl h4{margin:8px 8px 4px;font-size:11.5px;font-weight:400;color:var(--mute)}
+.pi{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;padding:7px 8px;border-radius:8px;cursor:pointer}
+.pi.hl{background:var(--panel2)}.pi[aria-selected=true] b::after{content:" ✓";color:var(--acc)}
+.pi .pa{width:30px;height:30px;border-radius:8px;background:var(--panel2);display:grid;place-items:center;font:600 11px var(--mono);color:var(--mute)}
+.pi.hl .pa{background:var(--panel)}
+.pi b{display:block;font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pi span span{font-size:12px;color:var(--mute)}
+.pi mark{background:var(--acc-dim);color:var(--acc);border-radius:3px}
+.pick .pf{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}
+nav{display:flex;flex-direction:column;gap:14px}
+.grp{display:flex;flex-direction:column;gap:1px}
+.grp>p{margin:0 0 4px;padding:0 10px;font-size:11.5px;color:var(--mute)}
+nav a{position:relative;display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:8px;color:var(--mute);text-decoration:none;min-height:38px}
+nav a svg{flex:none;width:16px;height:16px}
+nav a span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav a:hover{color:var(--ink);background:var(--panel2)}
+nav a.on{color:var(--ink);background:var(--panel2)}
+nav a.on::before{content:"";position:absolute;left:-10px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--acc)}
+nav a.on svg{color:var(--acc)}
+nav a em{margin-left:auto;font:500 11.5px var(--mono);font-style:normal;border-radius:9px;padding:0 7px;min-width:20px;text-align:center}
+em.b-crit{background:var(--crit);color:#fff}em.b-warn{background:color-mix(in srgb,var(--grav) 18%,transparent);color:var(--grav)}em.b-n{background:var(--panel);color:var(--mute);border:1px solid var(--line2)}
+.health{margin-top:auto;border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:7px;font-size:12.5px}
+.health div{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.health i{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+.health b{margin-left:auto;font:400 12px var(--mono);color:var(--mute)}
+.me{display:flex;align-items:center;gap:10px;padding:2px 4px}
+.me .av{width:30px;height:30px;border-radius:50%;background:var(--acc-dim);color:var(--acc);display:grid;place-items:center;font:600 12px 'Geist',sans-serif;flex:none}
+.me b{display:block;font-size:13px;font-weight:500;white-space:nowrap}.me span{font-size:11.5px;color:var(--mute);white-space:nowrap}
+.side .demo{font-size:11.5px;color:var(--mute);margin:0;padding:0 6px}
+.mini .brand>div,.mini .scope,.mini .grp>p,.mini nav a span,.mini .health,.mini .me>div,.mini .side .demo{display:none}
+.mini .brand{flex-direction:column;gap:12px}.mini .fold{margin:0}.mini .fold svg{transform:rotate(180deg)}
+.mini nav a{justify-content:center;padding:7px 0}
+.mini nav a em{position:absolute;top:5px;right:9px;min-width:0;width:8px;height:8px;padding:0;font-size:0;border:0}
+.mini .grp+.grp{border-top:1px solid var(--line);padding-top:12px}.mini .me{justify-content:center}
+.ext{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.45fr);gap:14px;align-items:start}
+.xl{display:grid;gap:8px}
+.xi{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;width:100%}
+.xi:hover{border-color:var(--line2)}.xi.sel{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+.xi .xg{width:36px;height:36px;border-radius:9px;background:var(--panel2);display:grid;place-items:center;font:600 14px 'Geist',sans-serif;color:var(--ink)}
+.xi b{display:block;font-weight:500}.xi span{font-size:12px;color:var(--mute)}
+.xi.soon{opacity:.6}
+.xdh{display:flex;gap:14px;align-items:center;margin-bottom:18px}.xdh h2{font-size:20px;margin:0}.xdh .sub{margin:2px 0 0}
+.xbar{display:flex;gap:4px;margin:4px 0 6px}.xbar i{flex:1;height:4px;border-radius:2px;background:var(--line2)}.xbar i.done{background:var(--acc)}.xbar i.cur{background:color-mix(in srgb,var(--acc) 55%,var(--line2))}
+.xstep{font:12px var(--mono);color:var(--mute);margin:0 0 18px}#drawer .xh{font-size:21px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px}
+#drawer h2{text-wrap:balance}.xbody{margin-top:14px}.xf1{display:grid;gap:14px}.xf1 label{display:grid;gap:5px;font-size:13px;color:var(--mute)}.xf1 .note{font-size:12.5px}
+.xhow{margin:0 0 16px;padding:0 0 0 20px;display:grid;gap:6px;font-size:14px;color:var(--ink)}.xhow li::marker{color:var(--mute);font-family:var(--mono)}
+.xrows{margin:16px 0 0;display:grid;gap:0}.xrows>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:12px 0;border-bottom:1px solid var(--line)}.xrows dt{font-size:13px;color:var(--mute)}.xrows dd{margin:0;grid-column:1;font-size:14px;overflow-wrap:anywhere}.xrows .lnk{grid-row:1/3;grid-column:2;align-self:center}
+.lnk{background:none;border:0;color:var(--acc);font:inherit;font-size:13.5px;cursor:pointer;padding:6px 4px;min-height:32px}.lnk:hover{text-decoration:underline}
+.xtest .prog{margin-bottom:10px}
+.xwait{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px dashed var(--line2);border-radius:10px;font-size:14px}.xwait i{width:16px;height:16px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--acc);animation:spin .8s linear infinite;flex:none}.xwait .lnk{margin-left:auto}
+.updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--acc);border-radius:12px;padding:10px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.xsum{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+.xsec{margin-top:22px}.xsec>h2{display:flex;align-items:baseline;gap:8px;margin:0 0 10px;font-size:15px;font-weight:600}.xsec>h2 small{font:12px var(--mono);color:var(--mute);font-weight:400}
+.xgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.xc{display:flex;flex-direction:column;gap:12px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;min-height:210px;color:inherit;font:inherit;transition:border-color .15s,background .15s}
+.xc:hover{border-color:var(--line2);background:color-mix(in srgb,var(--panel) 92%,var(--ink))}.xc:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.xc .xtop{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.xg{width:48px;height:48px;flex:none;border-radius:12px;background:var(--panel2);border:1px solid var(--line);display:grid;place-items:center;overflow:hidden;color:var(--ink)}
+.xg b{font:600 19px 'Geist',sans-serif}.xg img{width:100%;height:100%;object-fit:contain}.xg.has{background:none;border-color:transparent}.xg.has b{display:none}.xg.has.small{background:var(--panel2);border-color:var(--line)}.xg.small img{width:28px;height:28px}.xg svg{width:24px;height:24px}
+.xc h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}.xc .ty{display:block;font-size:12.5px;color:var(--mute);margin-top:1px}
+.xc p{margin:0;font-size:13.5px;line-height:1.45;color:var(--mute);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.xc .caps{display:flex;flex-wrap:wrap;gap:4px}.xc .caps span{font:11.5px var(--mono);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--mute)}
+.xc .xft{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;color:var(--mute);border-top:1px solid var(--line);padding-top:10px}
+.xc .xft em{font-style:normal;font-weight:500;color:var(--ink)}
+.xc.soon{background:transparent}.xc.soon .xg,.xc.soon h3{opacity:.6}
+.xc.new{border-style:dashed;background:transparent}.xc.new .xg{margin-bottom:0}.xc.new .xg{background:var(--acc-dim);border-color:transparent;color:var(--acc)}
+.xtree{font:12.5px/1.7 var(--mono);color:var(--mute);margin:8px 0 0}.xtree b{color:var(--ink);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:20px;padding:5px 11px;font-size:13px;cursor:pointer;min-height:34px}
+.chip input{width:16px;height:16px;margin:0;accent-color:var(--acc)}
+.chip:has(input:checked){border-color:var(--acc);background:var(--acc-dim);color:var(--ink)}
+.sw{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink);cursor:pointer}.sw input{width:20px;height:20px;accent-color:var(--acc);margin:0}
+.fs{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.fs h3{font-size:14px;font-weight:600;margin:0 0 10px}
+.prev{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px}
+.prev b.n{font:500 22px var(--mono)}
+.mono-l{font:12.5px/1.6 var(--mono);color:var(--mute)}
+.top{display:flex;gap:10px;align-items:center;padding:14px clamp(14px,2.4vw,32px);border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in srgb,var(--bg) 92%,transparent);z-index:3}
+.search{flex:1 1 320px;max-width:520px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 12px;min-height:40px;color:var(--mute)}
+.search input[type=search]{border:0;background:none;outline:none;padding:0;flex:1;min-height:38px;font-size:15px;color:var(--ink)}
+.search:focus-within{border-color:var(--acc)}
+.top select{width:auto;min-width:200px}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--acc);border:1px solid var(--line2);border-radius:20px;padding:4px 11px;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 22%,transparent)}
+.pill.off{color:var(--mute)}
+.bell{position:relative;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;cursor:pointer;margin-left:auto}
+.bell i{position:absolute;top:-5px;right:-5px;font:500 11px var(--mono);font-style:normal;background:var(--crit);color:#fff;border-radius:9px;padding:0 6px}
+select,input[type=text],input[type=url],input[type=number],input[type=search],input[type=password]{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-height:40px;font-size:15px;width:100%}
+main{padding:22px clamp(14px,2.4vw,32px) 48px;max-width:1500px;width:100%}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+h1{font-size:28px;font-weight:600;line-height:1.1;margin:0 0 4px;letter-spacing:-.02em;text-wrap:balance}
+.sub{color:var(--mute);margin:0}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;padding:3px;background:var(--panel)}
+.seg button{border:0;background:none;border-radius:7px;padding:6px 12px;min-height:34px;cursor:pointer;color:var(--mute);font:500 13px var(--mono)}
+.seg button.on{background:var(--acc-dim);color:var(--acc)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;position:relative}
+.card h3{font-size:13.5px;font-weight:500;margin:0 0 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.card h3 .ico,.card h3 .tag{flex:none}
+.card h3 a,.card h3 .tag{font-weight:400}
+.ico{width:28px;height:28px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;color:var(--mute)}
+.big{font:500 38px/1 'Geist',system-ui,sans-serif;letter-spacing:-.03em}.dec{color:var(--mute)}.big small{font-size:.5em;color:var(--mute);margin-left:2px}
+.note{font-size:12.5px;color:var(--mute);margin:6px 0 0}
+.ov{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px}
+.ovmain{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;grid-template-areas:"logs g g" "logs line dots" "tbl tbl tbl"}
+.c-logs{grid-area:logs;display:flex;flex-direction:column}.gauges{grid-area:g;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.c-line{grid-area:line}.c-dots{grid-area:dots}.c-tbl{grid-area:tbl}
+.ovside{display:grid;gap:14px;align-content:start}
+.gw{position:relative;max-width:240px;margin:0 auto}.gw .gv{position:absolute;left:0;right:0;bottom:0;text-align:center}
+.gw .gv .big{font-size:25px}
+.c-logs .gw{width:100%;max-width:300px;margin-top:auto;padding-top:12px}.c-logs .gw .gv .big{font-size:44px}
+.cols{display:flex;align-items:flex-end;gap:2px;height:170px;margin-top:14px}
+.cols div{flex:1;background:var(--line2);border-radius:2px 2px 0 0;min-height:2px}
+.cols div.l-moyen{background:var(--moy)}.cols div.l-grave{background:var(--grav)}.cols div.l-critique{background:var(--crit)}
+.axis{display:flex;justify-content:space-between;font:11.5px var(--mono);color:var(--mute);margin-top:6px}
+.ln{position:relative;height:178px;margin-top:8px}.ln svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ln .th{position:absolute;left:0;transform:translateY(-110%);font:11px var(--mono);color:var(--mute)}
+.ln path.l{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--acc) 55%,transparent))}
+.dots{display:grid;grid-template-columns:72px repeat(24,minmax(0,1fr));gap:5px 3px;align-items:center;margin-top:8px}
+.dots span{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dots i{display:block;width:100%;max-width:9px;aspect-ratio:1;border-radius:50%;background:var(--line);margin:auto}
+.dots i.l-benin{background:var(--ben)}.dots i.l-moyen{background:var(--moy)}.dots i.l-grave{background:var(--grav)}.dots i.l-critique{background:var(--crit);box-shadow:0 0 0 2px color-mix(in srgb,var(--crit) 30%,transparent)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.legend div{display:flex;align-items:baseline;gap:6px}.legend b{font:500 20px var(--mono)}.legend span{font-size:12px;color:var(--mute);display:inline-flex;align-items:center;gap:5px}
+.legend span::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+.ring{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}
+.ring svg{width:88px;height:88px}
+.bars>div{margin-top:10px}.bars p{display:flex;justify-content:space-between;margin:0 0 5px;font-size:13px}.bars p b{font:500 13px var(--mono)}
+.track{height:6px;border-radius:4px;background:var(--panel2);overflow:hidden}.track span{display:block;height:100%;border-radius:4px}
+.feed{list-style:none;margin:0;padding:0}
+.feed li{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line);cursor:pointer}
+.feed li:first-child{border-top:0}.feed li.empty{display:block}
+.feed li>i{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c)}
+.feed b{display:block;font-weight:500;font-size:13.5px}.feed span{font-size:12px;color:var(--mute)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:400;color:var(--mute);font-size:12.5px;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tr.click{cursor:pointer}tr.click:hover td{background:var(--panel2)}
+.num{text-align:right;font-family:var(--mono);white-space:nowrap}.r{text-align:right;white-space:nowrap;color:var(--mute)}
+.mono{font-family:var(--mono);font-size:13px;white-space:nowrap}
+.lv{display:inline-flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+.lv::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
+.c-critique{--c:var(--crit)}.c-grave{--c:var(--grav)}.c-moyen{--c:var(--moy)}.c-benin{--c:var(--ben)}
+.score{font:500 12.5px var(--mono);color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);border-radius:6px;padding:2px 7px}
+.tag{font-size:12px;border:1px solid var(--line2);border-radius:6px;padding:1px 7px;color:var(--mute);white-space:nowrap}
+.tag.ok{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 50%,transparent)}.tag.warn{color:var(--grav);border-color:color-mix(in srgb,var(--grav) 50%,transparent)}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:8px 14px;min-height:40px;cursor:pointer}
+.btn:hover{border-color:var(--mute)}.btn.p{background:var(--acc);border-color:var(--acc);color:var(--on-acc);font-weight:600}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}.bar input[type=search]{flex:1 1 220px;width:auto}
+.bar select{width:auto;min-width:170px}td[data-l="Famille"]{white-space:nowrap}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.panel h2,.drawer h2{font-size:15px;font-weight:600;margin:0 0 10px}
+.grid2{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:14px;margin:0}.kv dt{color:var(--mute)}.kv dd{margin:0}
+.raw{font:12px/1.55 var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
+.drawer{position:fixed;inset:0 0 0 auto;width:min(580px,100%);background:var(--panel);border-left:1px solid var(--line2);padding:22px;overflow-y:auto;transform:translateX(100%);transition:transform .2s;z-index:5}
+.drawer.open{transform:none}
+.veil{position:fixed;inset:0;background:#000a;display:none;z-index:4}.veil.on{display:block}
+.sbar{position:relative;height:12px;border-radius:6px;background:var(--panel2);display:flex;overflow:hidden;margin:14px 0 6px}
+.sbar span{height:100%;border-right:2px solid var(--panel)}
+.sbar i{position:absolute;top:0;bottom:0;width:2px;background:var(--panel);transform:translateX(-1px)}
+.sscale{position:relative;height:16px;margin-bottom:12px}.sscale b{position:absolute;top:0;font:400 11px var(--mono);color:var(--mute);transform:translateX(-50%);white-space:nowrap}
+.sscale b:last-child{transform:translateX(-70%)}
+.calc{display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:14px}
+.calc .t{border-top:1px solid var(--line);padding-top:5px;font-weight:600}
+.ai{border:1px solid color-mix(in srgb,var(--acc) 35%,transparent);background:var(--acc-dim);padding:10px 12px;border-radius:10px;margin:0}
+.modal{position:fixed;inset:0;display:none;place-items:center;z-index:6;padding:16px}.modal.on{display:grid}
+.modal .panel{max-width:620px;width:100%;max-height:90vh;overflow-y:auto}
+.check{display:flex;gap:10px;align-items:flex-start;padding:6px 0}.check input{width:20px;height:20px;margin-top:2px;flex:none;accent-color:var(--acc)}
+.empty{color:var(--mute);padding:18px 0;text-align:center}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--acc)}.live::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.live.off{color:var(--mute)}
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.form label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
+main > h1{margin-bottom:4px}main > .sub{margin-bottom:18px}
+.steps{list-style:none;display:flex;flex-wrap:wrap;gap:6px 22px;padding:0;margin:4px 0 16px}
+.steps li{display:flex;align-items:center;gap:8px;color:var(--mute);font-size:14px}
+.steps i{width:24px;height:24px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;font:500 12px var(--mono);font-style:normal}
+.steps li.cur{color:var(--ink)}.steps li.cur i{border-color:var(--acc);color:var(--acc)}.steps li.done i{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}
+.wiz{max-width:860px}.wiz h2{font-size:18px}
+.wnav{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
+.brands{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin:14px 0}
+.brand-t{display:grid;gap:6px;justify-items:start;text-align:left;background:var(--panel);border:1px solid var(--line2);border-radius:12px;padding:16px;cursor:pointer;min-height:96px}
+.brand-t .bm{font:600 20px 'Geist',sans-serif;letter-spacing:-.01em}
+.brand-t:hover:not(:disabled){border-color:var(--mute)}.brand-t.sel{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc);background:var(--acc-dim)}
+.brand-t:disabled{opacity:.45;cursor:not-allowed}
+.prog{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.prog li{display:flex;align-items:center;gap:12px;color:var(--mute)}
+.prog i{width:24px;height:24px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;font-style:normal;font-size:13px;flex:none}
+.prog .p-ok{color:var(--ink)}.prog .p-ok i{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}
+.prog .p-run{color:var(--ink)}.prog .p-run i{border:2px solid var(--line2);border-top-color:var(--acc);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation-fill-mode:both}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.kpis .card{display:grid;gap:6px}.kpis .big{font-size:30px}
+.seg button[data-ctab],.seg button[data-mode]{font-family:'Geist',sans-serif;font-size:13.5px}td .btn{min-height:34px;padding:5px 12px}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.link{background:none;border:0;color:var(--acc);cursor:pointer;padding:6px 0;font-size:14px}
+@media (prefers-reduced-motion:reduce){.prog .p-run i{animation:none;border-top-color:var(--line2)}tr.newrow td{animation:none}}
+@media(max-width:640px){.kpis{grid-template-columns:1fr 1fr}}
+@media (prefers-reduced-motion:reduce){.drawer{transition:none}.xwait i{animation:none}}
+@media(max-width:1280px){.ov{grid-template-columns:1fr}.ovside{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:980px){.app,.app.mini{grid-template-columns:1fr}.side{position:static;height:auto}nav{flex-direction:row;flex-wrap:wrap;gap:4px}.grp{flex-direction:row;flex-wrap:wrap}.grp>p,.fold,.health,.me{display:none}nav a.on::before{display:none}.ext{grid-template-columns:1fr}
+ .ovmain{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"g g" "logs logs" "line dots" "tbl tbl"}.ovside{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.form{grid-template-columns:1fr}.top{position:static;flex-wrap:wrap}.search{flex-basis:100%;max-width:none}.top select{min-width:0;flex:1}}
+@media(max-width:640px){.ovmain{grid-template-columns:1fr;grid-template-areas:"g" "logs" "line" "dots" "tbl"}.gauges{grid-template-columns:1fr}.gw{max-width:190px}.dots{grid-template-columns:52px repeat(24,minmax(0,1fr))}.big{font-size:32px}
+ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:8px;border-bottom:1px solid var(--line)}.stack td{display:flex;justify-content:space-between;gap:12px;border:0;padding:3px 0}.stack td::before{content:attr(data-l);color:var(--mute)}h1{font-size:23px}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-overview" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.75" y="1.75" width="5" height="5" rx="1.2"/><rect x="9.25" y="1.75" width="5" height="5" rx="1.2"/><rect x="1.75" y="9.25" width="5" height="5" rx="1.2"/><rect x="9.25" y="9.25" width="5" height="5" rx="1.2"/></g></symbol>
+<symbol id="i-incidents" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.8 14.6 13.6H1.4Z"/><path d="M8 6.2v3.6M8 11.6v.2" stroke-linecap="round"/></g></symbol>
+<symbol id="i-logs" viewBox="0 0 16 16"><path d="M2 3.5h12M2 6.5h12M2 9.5h9M2 12.5h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+<symbol id="i-devices" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.75" y="2.5" width="12.5" height="4.5" rx="1.2"/><rect x="1.75" y="9" width="12.5" height="4.5" rx="1.2"/></g><circle cx="4.5" cy="4.75" r=".9" fill="currentColor"/><circle cx="4.5" cy="11.25" r=".9" fill="currentColor"/></symbol>
+<symbol id="i-catalog" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 2.5c0-.4.3-.75.75-.75H13v11H4.25c-.7 0-1.25.55-1.25 1.25Z"/><path d="M3 13.9c0 .7.55 1.25 1.25 1.25H13"/><path d="M6 5h4.5" stroke-linecap="round"/></g></symbol>
+<symbol id="i-rules" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></g><circle cx="5" cy="4" r="1.6" fill="var(--side)" stroke="currentColor" stroke-width="1.5"/><circle cx="10.5" cy="8" r="1.6" fill="var(--side)" stroke="currentColor" stroke-width="1.5"/><circle cx="6.5" cy="12" r="1.6" fill="var(--side)" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="i-docs" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 1.75h6l3 3v9.5h-9Z"/><path d="M9.5 1.75v3h3M5.75 8.5h4.5M5.75 11h3" stroke-linecap="round"/></g></symbol>
+<symbol id="i-ai" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5" stroke-linecap="round"/></g></symbol>
+<symbol id="i-admin" viewBox="0 0 16 16"><path d="M8 1.5 13.75 3.6v3.9c0 3.2-2.4 5.9-5.75 7-3.35-1.1-5.75-3.8-5.75-7V3.6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+<symbol id="i-chev" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-extensions" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.75v3M10 1.75v3"/><path d="M4.25 4.75h7.5v2.5a3.75 3.75 0 0 1-7.5 0Z"/><path d="M8 11v3.25"/></g></symbol>
+<symbol id="i-clients" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 14.25V2.75h7v11.5M9.5 6.25h4v8"/><path d="M1.5 14.25h13M5 5.25h1.5M5 8h1.5M5 10.75h1.5" stroke-linecap="round"/></g></symbol>
+<symbol id="i-search" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.75"/><path d="m10.5 10.5 3.75 3.75"/></g></symbol>
+<symbol id="i-bell" viewBox="0 0 16 16"><path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.25 1.25H2.75ZM6.5 14.25h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-clock" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.5V8l2.5 1.5"/></g></symbol>
+</defs></svg>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><svg class="logo" width="28" height="28" viewBox="0 0 224 224" role="img" aria-label="SysLens"><path fill="currentColor" d="M183 24H67A53 53 0 0 0 67 130H157A17 17 0 0 1 157 164H67V200H157A53 53 0 0 0 157 94H67A17 17 0 0 1 67 60H183Z"/><path fill="#E8590C" d="M15 182A18 18 0 1 0 51 182A18 18 0 1 0 15 182Z"/></svg><div><svg class="word" viewBox="296 58 522 132" height="21" aria-hidden="true"><path fill="currentColor" d="M337.3 161.96C361.15 161.96 375.7 150.46 375.7 131.81C375.7 117.26 366.54 108.75 345.88 104.4L336.59 102.38C324.7 99.79 319.89 96.47 319.89 90.5C319.89 83.41 326.85 78.48 336.72 78.48C347.11 78.48 353.94 84.13 354.65 93.29H373.36C372.78 73.8 358.94 62.04 336.66 62.04C314.63 62.04 299.88 73.86 299.88 91.47C299.88 105.31 309.17 114.21 328.34 118.37L338.54 120.58C350.82 123.24 355.89 126.88 355.89 133.11C355.89 140.65 348.54 145.52 337.43 145.52C325.03 145.52 317.55 139.29 317.3 128.63H298C298 149.68 312.49 161.96 337.3 161.96ZM388.69 187.56H401.36C412.02 187.56 418.64 182.42 423 170.99L453.2 91.8H433.33L421.76 125.71C420.14 130.58 418.64 135.58 417.15 140.52C415.72 135.58 414.16 130.65 412.6 125.71L401.1 91.8H381.03L407.4 160.14L405.52 165.14C403.7 170.4 401.95 172.42 397.4 172.42H388.69ZM487.9 162.09C505.83 162.09 518.3 153.12 518.3 139.42C518.3 129.35 511.93 123.37 498.1 120.64L485.1 118.11C479.84 117 476.79 114.73 476.79 111.22C476.79 107.13 480.75 103.94 487.31 103.94C494.07 103.94 498.75 108.04 498.88 113.56H516.61C516.22 99.27 504.53 90.37 486.79 90.37C468.93 90.37 457.69 98.94 457.69 111.94C457.69 122.59 464.77 129.35 478.09 131.94L490.11 134.28C495.69 135.39 499.01 137.53 499.01 141.17C499.01 145.39 494.65 148.38 487.57 148.38C480.1 148.38 475.68 144.81 474.97 138.83H456.13C457.3 153.58 470.1 162.09 487.9 162.09ZM529.02 160.4H593.01V143.25H549.03V63.6H529.02ZM633.94 161.96C650.57 161.96 663.83 152.47 666.36 138.83H648.88C647.13 144.16 642 147.6 634.53 147.6C624.46 147.6 618.61 141.04 618.28 130.91H667.07V125.77C667.07 104.85 653.5 90.24 633.29 90.24C613.61 90.24 599.64 105.24 599.64 126.16C599.64 147.02 613.15 161.96 633.94 161.96ZM618.41 118.69C619.45 110.12 625.11 104.79 633.68 104.79C642.32 104.79 648.04 110.12 649.01 118.69ZM696.5 122.26C696.5 111.61 702.03 106.87 709.95 106.87C717.94 106.87 722.56 111.74 722.56 120.97V160.4H741.66V117.46C741.66 100.11 732.24 90.37 717.62 90.37C707.74 90.37 700.79 94.78 696.18 102.58V91.8H677.34V160.4H696.5ZM783.75 162.09C801.68 162.09 814.16 153.12 814.16 139.42C814.16 129.35 807.79 123.37 793.95 120.64L780.96 118.11C775.7 117 772.64 114.73 772.64 111.22C772.64 107.13 776.61 103.94 783.17 103.94C789.93 103.94 794.6 108.04 794.73 113.56H812.47C812.08 99.27 800.39 90.37 782.65 90.37C764.78 90.37 753.54 98.94 753.54 111.94C753.54 122.59 760.63 129.35 773.94 131.94L785.96 134.28C791.55 135.39 794.86 137.53 794.86 141.17C794.86 145.39 790.51 148.38 783.43 148.38C775.96 148.38 771.54 144.81 770.83 138.83H751.99C753.15 153.58 765.95 162.09 783.75 162.09Z"/></svg></div><button class="fold" id="fold" aria-label="Réduire la barre latérale" title="Réduire la barre"><svg width="14" height="14"><use href="#i-chev"/></svg></button></div>
+    <button class="scope" id="scopeBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="pick"><span>Périmètre</span><b id="scopeName">Tous les clients</b><kbd>Ctrl K</kbd></button>
+    <nav id="nav" aria-label="Navigation principale"></nav>
+    <div class="health" id="health" aria-label="État des services"></div>
+    <div class="me"><span class="av" aria-hidden="true">AR</span><div><b>Admin réseau</b><span id="meSub">Session de démonstration</span></div></div>
+    <p class="demo" id="demoNote">Données fictives · IP des plages de documentation</p>
+  </aside>
+  <div>
+    <header class="top">
+      <label class="search"><svg width="16" height="16"><use href="#i-search"/></svg><input type="search" id="q" placeholder="Rechercher une IP, un équipement, un message… (Entrée)" aria-label="Rechercher dans les logs"></label>
+      <span class="pill" id="livePill">en direct</span>
+      <button class="bell" id="bell" aria-label="Incidents critiques ouverts"><svg width="17" height="17"><use href="#i-bell"/></svg><i id="bellN"></i></button>
+    </header>
+    <main id="view"></main>
+  </div>
+</div>
+<div class="pick" id="pick" role="dialog" aria-label="Choisir un client" hidden><div class="ph"><input type="search" id="pickQ" placeholder="Rechercher un client (nom ou référence)…" aria-label="Rechercher un client" aria-controls="pickL" autocomplete="off"></div><div class="pl" id="pickL" role="listbox"></div><div class="pf"><span id="pickF"></span><span>↑ ↓ pour choisir · Entrée · Échap</span></div></div>
+<div class="veil" id="veil"></div>
+<aside class="drawer" id="drawer" aria-label="Détail de l'incident"></aside>
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle"></div>
+<script>
+{
+const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const LEVELS = [['critique',85],['grave',60],['moyen',30],['benin',0]], LNAME = {critique:'Critique',grave:'Grave',moyen:'Moyen',benin:'Bénin'};
+const level = s => LEVELS.find(l => s >= l[1])[0];
+const VSEV = [90,90,80,65,45,25,10,0];
+const LIVEMODE = location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && location.pathname.startsWith('/console');
+const clients = [
+  {id:'cli-07',name:'Client Démo A',hours:[8,19]},{id:'cli-12',name:'Client Démo B',hours:[7,18]},
+  {id:'cli-21',name:'Client Démo C',hours:[8,20]},{id:'cli-33',name:'Client Démo D',hours:[6,21]}];
+for (let i = 1; i <= 1240; i++) { const id = 'cli-' + i; if (!clients.some(c => +c.id.slice(4) === i)) clients.push({id, name: 'Client Démo ' + String(i).padStart(4, '0'), hours: [8, 18]}); }
+if (LIVEMODE) clients.unshift({id:'cli-test', name:'Parc test', hours:[8,19]});
+clients.forEach(c => c.ref = c.id === 'cli-test' ? 'C-TEST' : 'C-' + c.id.slice(4).padStart(4, '0'));
+const devices = [
+  {id:'fw-a-01',cli:'cli-07',fam:'Pare-feu',model:'USG FLEX 200',fw:'ZLD 5.39',src:'Syslog CEF',crit:'tete',last:1},
+  {id:'sw-a-01',cli:'cli-07',fam:'Switch',model:'GS1920-24HPv2',fw:'4.80',src:'Syslog',crit:'coeur',last:2},
+  {id:'ap-a-01',cli:'cli-07',fam:'Borne',model:'NWA50AX',fw:'6.70',src:'Syslog CEF',crit:'',last:3},
+  {id:'fw-b-01',cli:'cli-12',fam:'Pare-feu',model:'USG FLEX 100H',fw:'uOS 1.31',src:'Syslog CEF',crit:'tete',last:1},
+  {id:'sw-b-01',cli:'cli-12',fam:'Switch',model:'XGS1930-28',fw:'4.80',src:'Syslog',crit:'coeur',last:94},
+  {id:'ap-b-01',cli:'cli-12',fam:'Borne',model:'WAX510D',fw:'6.70',src:'Syslog CEF',crit:'',last:4},
+  {id:'fw-c-01',cli:'cli-21',fam:'Pare-feu',model:'ATP200',fw:'ZLD 5.39',src:'Syslog CEF',crit:'tete',last:1},
+  {id:'sw-c-01',cli:'cli-21',fam:'Switch',model:'GS1350-12HP',fw:'2.00',src:'Syslog',crit:'',last:2},
+  {id:'ap-c-01',cli:'cli-21',fam:'Borne',model:'NWA110AX',fw:'6.70',src:'Syslog CEF',crit:'',last:6},
+  {id:'fw-d-01',cli:'cli-33',fam:'Pare-feu',model:'USG FLEX 200HP',fw:'Nebula',src:'Nebula (syslog + API)',crit:'tete',last:1},
+  {id:'sw-d-01',cli:'cli-33',fam:'Switch',model:'GS1915-24EP',fw:'Nebula',src:'Nebula (syslog + API)',crit:'coeur',last:2},
+  {id:'ap-d-01',cli:'cli-33',fam:'Borne',model:'NWA130BE',fw:'Nebula',src:'Nebula (syslog + API)',crit:'',last:41}];
+if (LIVEMODE) devices.length = 0;
+const SILENCE = {'Pare-feu':15,'Switch':30,'Borne':30};
+const catalog = [
+  {k:'admin-ok',fam:'Pare-feu',cat:'User',sig:'Administrateur connecté',base:70,floor:0,admin:true,mean:"Connexion réussie à l'interface d'administration.",act:"Vérifier que la connexion est attendue ; si elle vient du WAN, fermer l'accès admin WAN.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'admin-ko',fam:'Pare-feu',cat:'User',sig:"Échec d'authentification administrateur",base:20,floor:0,admin:true,mean:"Mot de passe administrateur refusé.",act:"Au-delà de 10 échecs en 5 min : bloquer la source, vérifier l'exposition du port d'administration.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'malware',fam:'Pare-feu',cat:'Anti-Malware',sig:'Fichier malveillant détecté',base:80,floor:85,mean:"Un fichier transféré correspond à une signature de malware.",act:"Identifier le poste destinataire, l'isoler, lancer une analyse.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'iprep-out',fam:'Pare-feu',cat:'IP Reputation',sig:'Connexion sortante vers IP malveillante',base:75,floor:85,mean:"Un poste interne contacte une adresse classée malveillante.",act:"Retrouver le poste par son IP locale, l'isoler, vérifier un éventuel botnet.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'idp',fam:'Pare-feu',cat:'IDP',sig:'Signature IDP gravité haute',base:60,floor:0,mean:"Trafic correspondant à une signature d'intrusion.",act:"Vérifier que l'action est « drop » et que la cible est à jour.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'vpn-down',fam:'Pare-feu',cat:'IKE',sig:'Tunnel IPsec tombé',base:55,floor:0,mean:"Le tunnel VPN site à site n'est plus établi.",act:"Contrôler le WAN distant et les paramètres IKE.",src:'Communauté Zyxel, format CEF',st:'actif'},
+  {k:'wan-down',fam:'Pare-feu',cat:'Interface',sig:'Interface WAN Down',base:62,floor:0,mean:"Perte du lien WAN.",act:"Contacter l'opérateur, vérifier la bascule de secours.",src:'Communauté Zyxel, RFC 3164',st:'actif'},
+  {k:'cpu',fam:'Pare-feu',cat:'System Monitoring',sig:'CPU ou mémoire > 90 %',base:40,floor:0,mean:"Charge élevée et durable.",act:"Regarder les sessions et les services de sécurité actifs.",src:'Communauté Zyxel, NWA50AX',st:'actif'},
+  {k:'cfg',fam:'Toutes',cat:'System',sig:'Configuration modifiée',base:35,floor:0,admin:true,mean:"La configuration a été modifiée.",act:"Vérifier qu'un changement était planifié.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'flap',fam:'Switch',cat:'Port',sig:'Port up/down répété',base:40,floor:0,mean:"Un port change d'état en boucle.",act:"Vérifier câble, équipement branché, négociation de vitesse.",src:'Guide GS1920, syslog',st:'actif'},
+  {k:'loop',fam:'Switch',cat:'Loop guard',sig:'Boucle détectée',base:65,floor:0,mean:"Une boucle réseau a été détectée sur un port.",act:"Repérer le port bloqué, retirer le câble en boucle.",src:'Guide GS1920, syslog',st:'actif'},
+  {k:'poe',fam:'Switch',cat:'PoE',sig:'Budget PoE dépassé',base:35,floor:0,mean:"La puissance PoE demandée dépasse le budget.",act:"Revoir les priorités PoE des ports.",src:'Guide GS1920, syslog',st:'actif'},
+  {k:'rogue',fam:'Borne',cat:'WLAN',sig:"Point d'accès non autorisé",base:62,floor:0,mean:"Un point d'accès inconnu diffuse à proximité.",act:"Localiser l'émetteur, vérifier qu'il n'usurpe pas un SSID.",src:'Communauté Zyxel, syslog des bornes',st:'actif'},
+  {k:'auth-ko',fam:'Borne',cat:'WLAN',sig:'Échec 802.1X / WPA',base:15,floor:0,mean:"Échec d'authentification d'un client Wi-Fi.",act:"En rafale : clé changée, poste mal configuré ou attaque.",src:'Communauté Zyxel, syslog des bornes',st:'actif'},
+  {k:'assoc',fam:'Borne',cat:'WLAN',sig:'Client associé',base:2,floor:0,mean:"Connexion normale d'un client.",act:'—',src:'Communauté Zyxel, syslog des bornes',st:'actif'},
+  {k:'traffic',fam:'Pare-feu',cat:'Traffic Log',sig:'Session autorisée',base:0,floor:0,mean:'Trafic normal.',act:'—',src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'dhcp',fam:'Pare-feu',cat:'DHCP',sig:'Bail DHCP attribué',base:0,floor:0,mean:'Fonctionnement normal.',act:'—',src:'Guide ATP 5.42, Log and Report',st:'actif'},
+  {k:'stp',fam:'Switch',cat:'STP',sig:'Changement de topologie STP',base:30,floor:0,mean:'Le spanning tree a recalculé la topologie.',act:'Répété : chercher un lien instable.',src:'Proposé par l’IA depuis le guide GS1920',st:'propose'},
+  {k:'dfs',fam:'Borne',cat:'Radio',sig:'Changement de canal DFS',base:5,floor:0,mean:'La borne quitte un canal à cause d’un radar.',act:'Aucune, sauf si répété.',src:'Proposé par l’IA depuis un guide NWA',st:'propose'},
+  {k:'uos-deny',fam:'Pare-feu',cat:'Security Policy',sig:'Rafale de refus de politique (uOS)',base:25,floor:0,mean:'Beaucoup de sessions refusées par la politique.',act:'Vérifier un scan entrant ou une règle trop stricte.',src:'Proposé par l’IA depuis la FAQ USG FLEX H',st:'propose'}];
+if (LIVEMODE) catalog.push(
+  {k:'if-stats',fam:'Pare-feu',cat:'INTERFACE STATISTICS',sig:'Relevé périodique des interfaces',base:10,floor:0,quiet:true,mean:"Compteurs et état de chaque port, envoyés à intervalle régulier. « Down » signifie port non câblé, pas une panne.",act:'—',src:'Observé sur USG20W-VPN 5.42 (banc de test)',st:'actif'},
+  {k:'sysmon',fam:'Pare-feu',cat:'System Monitoring',sig:'Relevé CPU, mémoire et sessions',base:5,floor:0,quiet:true,mean:'Relevé périodique de charge.',act:'—',src:'Observé sur USG20W-VPN 5.42 (banc de test)',st:'actif'},
+  {k:'deny-default',fam:'Pare-feu',cat:'Security Policy Control',sig:'Paquet bloqué par la règle par défaut',base:5,floor:0,quiet:true,mean:"Trafic sans règle explicite, bloqué : comportement normal d'un pare-feu.",act:'En rafale depuis le WAN : regarder la source (scan).',src:'Observé sur USG20W-VPN 5.42 (banc de test)',st:'actif'},
+  {k:'link-down',fam:'Toutes',cat:'Interface',sig:'Lien réseau tombé',base:62,floor:0,mean:"Un lien est passé à l'état down.",act:'Vérifier câble, équipement en face et opérateur si WAN.',src:'Mini-référentiel du récepteur de test',st:'actif'},
+  {k:'reboot',fam:'Toutes',cat:'System',sig:"Redémarrage de l'équipement",base:45,floor:0,mean:"L'équipement a redémarré.",act:'Vérifier si le redémarrage était prévu (mise à jour, coupure électrique).',src:'Mini-référentiel du récepteur de test',st:'actif'});
+const CAT = Object.fromEntries(catalog.map(c => [c.k,c]));
+const rules = [
+  {n:'Connexion admin réussie depuis le WAN',f:'Pare-feu',k:'admin-ok',lvl:'critique',on:true},
+  {n:'Force brute admin ou VPN (≥ 10 échecs / 5 min)',f:'Pare-feu',k:'admin-ko',lvl:'grave',on:true,min:10},
+  {n:'Malware ou Sandbox positif',f:'Pare-feu',k:'malware',lvl:'critique',on:true},
+  {n:'Poste interne vers IP malveillante',f:'Pare-feu',k:'iprep-out',lvl:'critique',on:true},
+  {n:'Intrusion détectée (IDP haute)',f:'Pare-feu',k:'idp',lvl:'grave',on:true},
+  {n:'Tunnel VPN tombé > 5 min',f:'Pare-feu',k:'vpn-down',lvl:'grave',on:true},
+  {n:'Lien WAN coupé',f:'Pare-feu',k:'wan-down',lvl:'grave',on:true},
+  {n:'Saturation CPU / mémoire 15 min',f:'Pare-feu',k:'cpu',lvl:'moyen',on:true},
+  {n:'Changement de configuration',f:'Toutes',k:'cfg',lvl:'moyen',on:true},
+  {n:'Port qui bagote (> 5 en 10 min)',f:'Switch',k:'flap',lvl:'moyen',on:true},
+  {n:'Boucle ou topologie instable',f:'Switch',k:'loop',lvl:'grave',on:true},
+  {n:'Budget PoE dépassé',f:'Switch',k:'poe',lvl:'moyen',on:true},
+  {n:'Borne pirate',f:'Borne',k:'rogue',lvl:'grave',on:true},
+  {n:'Échecs Wi-Fi en rafale (≥ 20 / 5 min)',f:'Borne',k:'auth-ko',lvl:'moyen',on:false,min:20},
+  {n:'Équipement silencieux',f:'Toutes',k:'silence',lvl:'grave',on:true}];
+const docs = [
+  {t:'ATP — Log and Report (guide 5.42)',m:'ATP, USG FLEX',v:'ZLD 5.42',p:'HTML',s:'Indexé',n:412},
+  {t:'USG FLEX H — syslog distant',m:'USG FLEX H',v:'uOS 1.10',p:'HTML',s:'Indexé',n:18},
+  {t:'Nebula Open API — spécification',m:'Nebula',v:'—',p:'HTML',s:'Indexé',n:236},
+  {t:'GS1920 Series — User Guide',m:'GS1920',v:'4.x',p:'PDF',s:'Indexé',n:1288},
+  {t:'Syslog des bornes NWA/WAX',m:'NWA, WAX',v:'6.x',p:'HTML',s:'Indexé',n:9},
+  {t:'XGS1930 — User Guide',m:'XGS1930',v:'4.80',p:'PDF',s:"En file d'indexation",n:0}];
+const aiLog = [];
+const AI_TXT = {
+  'admin-ko':['Vrai problème','Échecs répétés depuis une même IP publique sur le port d’administration : tentative de force brute. Le guide indique que l’accès admin WAN peut être restreint par objet d’adresse.'],
+  'idp':['Vrai problème','Signature d’exploitation connue visant un service web ; le pare-feu a bloqué la session. Pas de compromission visible, mais la cible est exposée.'],
+  'flap':['Faux positif probable','Les changements d’état coïncident avec la mise en veille d’un poste branché sur ce port (négociation Ethernet économe). À surveiller sans intervention.'],
+  'vpn-down':['Vrai problème','Le tunnel tombe en même temps que des pertes WAN côté site distant ; cause probable : lien opérateur, pas la configuration IKE.'],
+  'loop':['Vrai problème','Loop guard a bloqué le port : un câble relie probablement deux prises du même switch.'],
+  'rogue':['À vérifier','Le SSID détecté ressemble au SSID invité du client : possible usurpation, ou borne personnelle d’un salarié.'],
+  'cpu':['Faux positif probable','La charge suit le pic de sauvegarde nocturne ; sans impact sur les sessions.'],
+  'cfg':['À vérifier','Modification faite hors plage ouvrée ; aucune maintenance déclarée sur cet équipement.'],
+  'poe':['Vrai problème','Un nouveau périphérique PoE+ dépasse le budget restant ; une caméra a été coupée.'],
+  'wan-down':['Vrai problème','Perte du WAN principal sans bascule : le site est hors ligne.']};
+// --- génération déterministe des événements
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, pick = a => a[Math.floor(rnd() * a.length)];
+const NOW = Date.now(), H = 3600e3;
+const PUB = ['203.0.113.47','198.51.100.23','203.0.113.9','192.0.2.180'], LAN = n => '192.168.' + n + '.' + (10 + Math.floor(rnd() * 200));
+let events = [], evId = 0; const srcCache = new Map();
+function mk(devId, k, t, extra = {}) {
+  const d = devices.find(x => x.id === devId), c = CAT[k];
+  const e = {id: ++evId, t, dev: d.id, cli: d.cli, fam: d.fam, model: d.model, k, cat: c.cat, msg: c.sig, vsev: extra.vsev ?? 5, src: extra.src || LAN(1), dst: extra.dst || '', user: extra.user || '', admin: !!c.admin, maint: false};
+  const dt = new Date(t), ts = dt.toUTCString().slice(8,11) + ' ' + String(dt.getUTCDate()).padStart(2,' ') + ' ' + dt.toISOString().slice(11,19);
+  e.raw = d.fam === 'Switch'
+    ? `<${8*16 + e.vsev}>${ts} ${d.id} ${d.model}: ${c.cat}: ${c.sig}${e.src ? ' src=' + e.src : ''}`
+    : `<${8*17 + e.vsev}>${ts} ${d.id} CEF:0|ZyXEL|${d.model}|${d.fw.replace(/^(ZLD|uOS) /,'')}|0|${c.cat}|${e.vsev}|devID=${d.id.replace(/-/g,'')} src=${e.src}${e.dst ? ' dst=' + e.dst : ''} dvchost=${d.id} msg=${c.sig}${e.user ? ',user:' + e.user : ''} cat=${c.cat}`;
+  events.push(e); srcCache.clear(); return e;
+}
+if (!LIVEMODE) {
+for (let i = 0; i < 1500; i++) { const d = pick(devices), t = NOW - rnd() * 24 * H;
+  const k = d.fam === 'Borne' ? pick(['assoc','assoc','assoc','auth-ko']) : d.fam === 'Switch' ? 'stp' : pick(['traffic','traffic','dhcp']);
+  mk(d.id, k, t, {vsev:6}); }
+for (let i = 0; i < 23; i++) mk('fw-a-01','admin-ko', NOW - 40 * 60e3 + i * 9e3, {src:'203.0.113.47',vsev:4,user:'admin'});
+for (let i = 0; i < 6; i++) mk('fw-b-01','admin-ko', NOW - 3 * H + i * 30e3, {src:'203.0.113.47',vsev:4,user:'admin'});
+mk('fw-c-01','iprep-out', NOW - 12 * 60e3, {src:'192.168.20.34',dst:'198.51.100.23',vsev:2});
+mk('fw-d-01','malware', NOW - 26 * 60e3, {src:'198.51.100.23',dst:'192.168.10.77',vsev:1});
+for (let i = 0; i < 3; i++) mk('fw-a-01','idp', NOW - 2 * H + i * 6e4, {src:'192.0.2.180',dst:'192.168.1.20',vsev:3});
+for (let i = 0; i < 9; i++) mk('sw-a-01','flap', NOW - 5 * H + i * 50e3, {vsev:5});
+mk('fw-b-01','vpn-down', NOW - 70 * 60e3, {src:'198.51.100.200',vsev:3});
+mk('sw-c-01','loop', NOW - 95 * 60e3, {vsev:3});
+mk('ap-d-01','rogue', NOW - 4 * H, {vsev:4});
+mk('fw-c-01','cpu', NOW - 7 * H, {vsev:5});
+mk('fw-a-01','cfg', NOW - 9 * H, {src:'192.168.1.5',vsev:5,user:'tech-ec'});
+mk('sw-d-01','poe', NOW - 2.5 * H, {vsev:4});
+}
+events = events.filter(e => { const d = devices.find(x => x.id === e.dev); return d.last <= SILENCE[d.fam] || e.t < NOW - d.last * 60e3; });
+events.sort((a,b) => a.t - b.t); srcCache.clear();
+// --- moteur de gravité (cahier § 6)
+const isPub = ip => { const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(ip || ''); if (!m) return false; const a = +m[1], b = +m[2];
+  return !(a === 10 || a === 127 || a === 0 || a >= 224 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)); };
+function srcClients(ip) { if (!srcCache.has(ip)) srcCache.set(ip, new Set(events.filter(e => e.src === ip).map(e => e.cli)).size); return srcCache.get(ip); }
+function scoreOf(e, count) {
+  const c = CAT[e.k], d = devices.find(x => x.id === e.dev), cl = clients.find(x => x.id === e.cli);
+  if (c && c.quiet) return {s: c.base, parts: [['Base (référentiel) — relevé de routine, sans bonus', c.base]], floor: 0};
+  const base = c && c.st === 'actif' ? c.base : VSEV[e.vsev], parts = [['Base' + (c && c.st === 'actif' ? ' (référentiel)' : ' (gravité constructeur ' + e.vsev + ')'), base]];
+  if (d.crit === 'tete') parts.push(['Équipement : pare-feu de tête', 10]); else if (d.crit === 'coeur') parts.push(['Équipement : switch cœur', 5]);
+  if (e.admin && isPub(e.src)) parts.push(['Origine : IP publique (WAN)', 15]);
+  const rep = count >= 200 ? 20 : count >= 50 ? 15 : count >= 10 ? 10 : count >= 3 ? 5 : 0; if (rep) parts.push(['Répétition : ' + count + ' occurrences', rep]);
+  const h = new Date(e.t).getHours(); if (e.admin && (h < cl.hours[0] || h >= cl.hours[1])) parts.push(['Horaire : hors plage ouvrée', 10]);
+  if (isPub(e.src) && srcClients(e.src) >= 2) parts.push(['Corrélation : source vue chez ' + srcClients(e.src) + ' clients', 15]);
+  if (d.maint) parts.push(['Maintenance déclarée', -30]);
+  let s = parts.reduce((a,p) => a + p[1], 0); const floor = c ? c.floor : 0;
+  s = Math.min(100, Math.max(floor, s, 0)); return {s, parts, floor};
+}
+// --- incidents = regroupements (cahier § 5)
+let incState = {};
+function incidents() {
+  const g = {};
+  for (const e of events) { const key = e.cli + '|' + e.dev + '|' + e.k + '|' + (isPub(e.src) ? e.src : ''); (g[key] ||= []).push(e); }
+  const out = [];
+  for (const [key, list] of Object.entries(g)) {
+    const last = list[list.length - 1], sc = scoreOf(last, list.length), lv = level(sc.s);
+    if (lv === 'benin' || (CAT[last.k] && CAT[last.k].quiet) || last.k === 'stp' || last.k === 'dfs' || last.k === 'uos-deny') continue;
+    if (last.k === 'auth-ko' && list.length < 20) continue;
+    out.push({key, list, last, sc, lv, st: incState[key] || 'ouvert'});
+  }
+  for (const d of devices) { const lim = SILENCE[d.fam]; if (d.last > lim) {
+    const key = 'silence|' + d.id, sc = {s: 66, parts: [['Règle : équipement silencieux (seuil ' + lim + ' min)', 66]], floor: 0};
+    out.push({key, list: [], last: {t: NOW - d.last * 60e3, dev: d.id, cli: d.cli, fam: d.fam, k: 'silence', msg: 'Aucun log depuis ' + d.last + ' min', src: ''}, sc, lv: 'grave', st: incState[key] || 'ouvert'}); } }
+  return out.sort((a,b) => b.sc.s - a.sc.s);
+}
+// --- état d'affichage
+let fCli = '', paused = false, logFilter = {fam:'',lv:'',q:''}, incFilter = '', openRow = null;
+const cName = id => clients.find(c => c.id === id).name;
+const ago = t => { const m = Math.max(0, Math.round((Date.now() - t) / 60e3)); return m < 1 ? "à l'instant" : m < 60 ? 'il y a ' + m + ' min' : 'il y a ' + Math.round(m / 60) + ' h'; };
+const hhmm = t => new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const lvChip = lv => `<span class="lv c-${lv}">${LNAME[lv]}</span>`, scChip = (s) => `<span class="score c-${level(s)}">${s}</span>`;
+const byCli = a => fCli ? a.filter(x => (x.cli || x.last.cli) === fCli) : a;
+const GROUPS = [['Supervision',[['overview','Vue d’ensemble'],['clients','Clients'],['incidents','Incidents'],['logs','Flux de logs'],['devices','Équipements']]],['Détection',[['catalog','Référentiel'],['rules','Règles'],['docs','Documentation']]],['Paramètres',[['extensions','Extensions'],['ai','Intelligence artificielle'],['admin','Administration']]]];
+const VIEWS = GROUPS.flatMap(g => g[1]);
+const MON = () => clients.filter(c => devices.some(d => d.cli === c.id));
+function incRows(list, compact) {
+  if (!list.length) return `<p class="empty">Aucun incident pour ce filtre.</p>`;
+  return `<table class="stack"><thead><tr><th>Score</th><th>Incident</th><th>Client</th>${compact ? '' : '<th>Équipement</th><th class="num">Évén.</th><th>Statut</th>'}<th class="r">Dernier</th></tr></thead><tbody>` +
+    list.map(i => `<tr class="click" data-inc="${esc(i.key)}"><td data-l="Score">${scChip(i.sc.s)}</td><td data-l="Incident">${esc(i.last.k === 'silence' ? 'Équipement silencieux' : CAT[i.last.k].sig)}</td><td data-l="Client">${esc(cName(i.last.cli))}</td>${compact ? '' : `<td data-l="Équipement" class="mono">${i.last.dev}</td><td data-l="Événements" class="num">${i.list.length || '—'}</td><td data-l="Statut"><span class="tag ${i.st === 'clos' ? 'ok' : ''}">${i.st}</span></td>`}<td data-l="Dernier" class="r">${ago(i.last.t)}</td></tr>`).join('') + '</tbody></table>';
+}
+const V = {};
+function route() { const h = location.hash.slice(1); return VIEWS.some(v => v[0] === h) ? h : 'overview'; }
+function nav() {
+  const open = byCli(incidents()).filter(i => i.st !== 'clos'), crit = open.filter(i => i.lv === 'critique').length;
+  const devs = byCli(devices), silent = devs.filter(d => d.last > SILENCE[d.fam]).length, prop = catalog.filter(c => c.st === 'propose').length, todo = EXT.filter(x => x.st === 'config').length;
+  const badge = id => id === 'incidents' ? (crit ? `<em class="b-crit" title="${crit} critique(s)">${crit}</em>` : open.length ? `<em class="b-n">${open.length}</em>` : '')
+    : id === 'devices' && silent ? `<em class="b-warn" title="${silent} silencieux">${silent}</em>` : id === 'catalog' && prop ? `<em class="b-n" title="${prop} à valider">${prop}</em>` : id === 'extensions' && todo ? `<em class="b-warn" title="${todo} à configurer">${todo}</em>` : '';
+  $('#nav').innerHTML = GROUPS.map(([g, items]) => `<div class="grp"><p>${g}</p>${items.map(([id,n]) => `<a href="#${id}" class="${route() === id ? 'on' : ''}" title="${n}"${route() === id ? ' aria-current="page"' : ''}><svg><use href="#i-${id}"/></svg><span>${n}</span>${badge(id)}</a>`).join('')}</div>`).join('');
+  const od = EXT.find(x => x.id === 'odoo'), mins = Math.max(1, Math.round((Date.now() - od.lastSync) / 60e3));
+  $('#health').innerHTML = `<div style="--c:${silent ? 'var(--grav)' : 'var(--acc)'}"><i></i>Collecte<b>${devs.length - silent}/${devs.length}</b></div><div style="--c:var(--acc)"><i></i>${PROV[ai.prov][2] ? 'IA cloud' : 'IA locale'}<b>${esc(ai.model.split(':')[0])}</b></div><div style="--c:${od.st === 'on' ? 'var(--acc)' : 'var(--grav)'}"><i></i>Odoo<b>${od.st === 'on' ? 'sync ' + mins + ' min' : 'à configurer'}</b></div>`;
+  $('#bellN').textContent = crit || ''; $('#bellN').hidden = !crit;
+  $('#livePill').className = 'pill' + (paused ? ' off' : ''); $('#livePill').textContent = paused ? 'flux en pause' : LIVEMODE ? (liveOk === false ? 'récepteur injoignable' : 'données réelles') : 'en direct';
+}
+let per = 24;
+const fmtN = n => n.toLocaleString('fr-FR');
+const pctH = v => { const [a,b] = (v * 100).toFixed(2).split('.'); return `${a}<span class="dec">,${b}</span><small>%</small>`; };
+const LVC = {critique:'var(--crit)',grave:'var(--grav)',moyen:'var(--moy)',benin:'var(--ben)'};
+function gauge(p, color, label) {
+  p = Math.max(0, Math.min(1, p || 0)); let t = ''; const n = 44;
+  for (let i = 0; i <= n; i++) { const a = Math.PI * (1 - i / n), c = Math.cos(a), s = Math.sin(a), r2 = i % 4 ? 83 : 78;
+    t += `<line x1="${(100 + 91 * c).toFixed(1)}" y1="${(100 - 91 * s).toFixed(1)}" x2="${(100 + r2 * c).toFixed(1)}" y2="${(100 - r2 * s).toFixed(1)}" stroke="${p > 0 && i / n <= p + 1e-9 ? color : 'var(--line2)'}" stroke-width="1.6" stroke-linecap="round"/>`; }
+  const a = Math.PI * (1 - p), kx = 100 + 68 * Math.cos(a), ky = 100 - 68 * Math.sin(a);
+  return `<svg viewBox="0 0 200 106" role="img" aria-label="${esc(label)}">${t}<path d="M32 100 A68 68 0 0 1 168 100" fill="none" stroke="var(--line)" stroke-width="5" stroke-linecap="round"/>${p > 0 ? `<path d="M32 100 A68 68 0 0 1 168 100" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" pathLength="100" stroke-dasharray="${(p * 100).toFixed(2)} 100"/><circle cx="${kx.toFixed(1)}" cy="${ky.toFixed(1)}" r="5.5" fill="var(--panel)" stroke="${color}" stroke-width="2.5"/>` : ''}</svg>`;
+}
+function smooth(pts) { let d = `M${pts[0][0]},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) { const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    const y1 = Math.min(140, Math.max(10, p1[1] + (p2[1] - p0[1]) / 6)), y2 = Math.min(140, Math.max(10, p2[1] - (p3[1] - p1[1]) / 6));
+    d += ` C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${y1.toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${y2.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`; }
+  return d; }
+function buckets(list, n) { const t0 = Date.now() - per * H, w = per * H / n, b = Array.from({length: n}, () => []);
+  for (const e of list) { const i = Math.floor((e.t - t0) / w); if (i >= 0 && i < n) b[i].push(e); } return b; }
+const RANK = {benin:0,moyen:1,grave:2,critique:3};
+const maxLv = l => l.reduce((m, e) => { const v = level(scoreOf(e, 1).s); return RANK[v] > RANK[m] ? v : m; }, 'benin');
+V.overview = () => {
+  const t0 = Date.now() - per * H, ev = byCli(events).filter(e => e.t >= t0), all = byCli(incidents()), open = all.filter(i => i.st !== 'clos');
+  const devs = byCli(devices), talk = devs.filter(d => d.last <= SILENCE[d.fam]).length;
+  const cover = ev.length ? ev.filter(e => CAT[e.k] && CAT[e.k].st === 'actif').length / ev.length : 0;
+  const aiN = all.filter(i => i.lv === 'moyen' || i.lv === 'grave').reduce((a, i) => a + i.list.filter(e => e.t >= t0).length, 0), aiShare = ev.length ? aiN / ev.length : 0;
+  const risk = open.length ? open[0].sc.s : 0, rLv = level(risk), n = l => open.filter(i => i.lv === l).length, crit = n('critique');
+  const lvOf = ev.map(e => level(scoreOf(e, 1).s)), nonBen = lvOf.filter(l => l !== 'benin').length;
+  const cb = buckets(ev, 48), cmax = Math.max(1, ...cb.map(b => b.length));
+  const cols = cb.map(b => `<div class="l-${b.length ? maxLv(b) : 'benin'}" style="height:${(b.length / cmax * 100).toFixed(1)}%" title="${b.length} logs"></div>`).join('');
+  const lb = buckets(ev, 24), pts = lb.map((b, i) => [i / 23 * 300, 140 - (b.length ? Math.max(...b.map(e => scoreOf(e, 1).s)) : 0) * 1.3]);
+  const line = smooth(pts), lastV = Math.round((140 - pts[23][1]) / 1.3);
+  const thY = v => ((140 - v * 1.3) / 150 * 100).toFixed(1);
+  const rows = (fCli ? clients.filter(c => c.id === fCli) : MON()).map(c => { const b = buckets(ev.filter(e => e.cli === c.id), 24);
+    return `<span title="${esc(c.name)}">${esc(c.id === 'cli-test' ? c.name : c.name.split(' ').slice(-1)[0])}</span>` + b.map(x => `<i class="${x.length ? 'l-' + maxLv(x) : ''}" title="${x.length} logs"></i>`).join(''); }).join('');
+  const fam = [['Pare-feu','var(--fw)'],['Switch','var(--sw)'],['Borne','var(--ap)']].map(([f,c]) => [f, c, ev.filter(e => e.fam === f).length]);
+  let off = 0; const donut = fam.map(([f,c,v]) => { const p = ev.length ? v / ev.length * 100 : 0, s = `<circle cx="44" cy="44" r="34" fill="none" stroke="${c}" stroke-width="9" pathLength="100" stroke-dasharray="${Math.max(0, p - 1.2).toFixed(2)} 100" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 44 44)"/>`; off += p; return s; }).join('');
+  const feed = open.slice().sort((a,b) => b.last.t - a.last.t).slice(0, 6).map(i => `<li data-inc="${esc(i.key)}" class="c-${i.lv}"><i><svg width="14" height="14"><use href="#i-${i.last.k === 'silence' ? 'clock' : 'incidents'}"/></svg></i><div><b>${i.lv === 'critique' ? 'Alerte critique envoyée' : i.last.k === 'silence' ? 'Équipement silencieux' : 'Incident ' + LNAME[i.lv].toLowerCase() + ' ouvert'}</b><span>${esc(i.last.k === 'silence' ? i.last.dev : CAT[i.last.k].sig)} · ${esc(cName(i.last.cli))} · ${ago(i.last.t)}</span></div></li>`).join('');
+  const ring = Math.min(1, aiShare / 0.05);
+  return `<div class="head"><div><h1>${crit ? crit + ' incident' + (crit > 1 ? 's' : '') + ' critique' + (crit > 1 ? 's' : '') + ' à traiter' : 'Aucun incident critique ouvert'}</h1><p class="sub">${open.length} incidents ouverts · ${devs.length - talk} équipement${devs.length - talk > 1 ? 's' : ''} silencieux · fenêtre de ${per} h${LIVEMODE ? ' · données réelles du récepteur' : ''}</p></div>
+  <div class="seg" role="group" aria-label="Fenêtre de temps">${[6,12,24].map(h => `<button data-per="${h}" class="${per === h ? 'on' : ''}" aria-pressed="${per === h}">${h} h</button>`).join('')}</div></div>
+  <div class="ov"><div class="ovmain">
+  <section class="card c-logs"><h3>Logs reçus <span class="ico"><svg width="14" height="14"><use href="#i-logs"/></svg></span></h3>
+    <div class="big">${fmtN(ev.length)}</div><p class="note"><b style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</b> notés moyen ou plus · ${(ev.length / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
+    <div class="cols" role="img" aria-label="Volume de logs sur ${per} heures, colorié par le niveau le plus haut">${cols}</div><div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div>
+    <div class="gw">${gauge(risk / 100, LVC[rLv], 'Score le plus haut encore ouvert : ' + risk)}<div class="gv"><span class="big">${risk}<small>/100</small></span></div></div>
+    <p class="note" style="text-align:center">Score le plus haut encore ouvert · ${LNAME[rLv]}</p></section>
+  <div class="gauges">
+    <section class="card"><h3>Équipements qui parlent</h3><div class="gw">${gauge(devs.length ? talk / devs.length : 0, 'var(--acc)', 'Équipements actifs')}<div class="gv"><span class="big">${pctH(devs.length ? talk / devs.length : 0)}</span></div></div><p class="note">${talk} sur ${devs.length} · seuil de silence par famille</p></section>
+    <section class="card"><h3>Couverture du référentiel</h3><div class="gw">${gauge(cover, 'var(--sw)', 'Couverture du référentiel')}<div class="gv"><span class="big">${pctH(cover)}</span></div></div><p class="note">Logs notés par une entrée validée</p></section>
+    <section class="card"><h3>Part vue par l'IA</h3><div class="gw">${gauge(ring, aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)', 'Part des logs envoyée à l’IA')}<div class="gv"><span class="big">${pctH(aiShare)}</span></div></div><p class="note">Budget : moins de 5 % des logs</p></section>
+  </div>
+  <section class="card c-line"><h3>Score maximal par tranche <span class="tag">actuel ${lastV}</span></h3>
+    <div class="ln"><svg viewBox="0 0 300 150" preserveAspectRatio="none" aria-label="Score maximal par tranche de temps" role="img"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--acc);stop-opacity:.28"/><stop offset="1" style="stop-color:var(--acc);stop-opacity:0"/></linearGradient></defs>
+      ${[[85,'crit'],[60,'grav'],[30,'moy']].map(([v,c]) => `<line x1="0" x2="300" y1="${140 - v * 1.3}" y2="${140 - v * 1.3}" stroke="var(--${c})" stroke-opacity=".55" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>`).join('')}
+      <path d="${line} L300,150 L0,150 Z" fill="url(#lg)"/><path class="l" d="${line}" fill="none" stroke="var(--acc)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+      <span class="th" style="top:${thY(85)}%">critique 85</span><span class="th" style="top:${thY(60)}%">grave 60</span><span class="th" style="top:${thY(30)}%">moyen 30</span></div>
+    <div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div></section>
+  <section class="card c-dots"><h3>Activité par client <span class="tag">${per} h</span></h3><div class="dots">${rows}</div>
+    <div class="legend">${['critique','grave','moyen'].map(l => `<div class="c-${l}"><b>${n(l)}</b><span>${LNAME[l]}s</span></div>`).join('')}<div class="c-benin"><b>${fmtN(lvOf.filter(l => l === 'benin').length)}</b><span>Bénins</span></div></div></section>
+  <section class="card c-tbl"><h3>À traiter maintenant <a href="#incidents">Voir les ${open.length} incidents</a></h3>${incRows(open.slice(0, 6))}</section>
+  </div>
+  <aside class="ovside">
+    <section class="card"><h3>Couche IA <span class="tag ok">${PROV[ai.prov][2] ? 'cloud' : 'local'}</span></h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Budget IA consommé"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${ring > 0 ? `<circle cx="44" cy="44" r="34" fill="none" stroke="${aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)'}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${(ring * 100).toFixed(1)} 100" transform="rotate(-90 44 44)"/>` : ''}<text x="44" y="49" text-anchor="middle" font-size="15" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${Math.round(ring * 100)} %</text></svg>
+      <dl class="kv" style="font-size:13px"><dt>Moteur</dt><dd>${esc(ai.provName())}</dd><dt>Modèle</dt><dd class="mono">${esc(ai.model)}</dd><dt>Appels</dt><dd>${aiLog.length} cette session</dd></dl></div>
+      <p class="note">Budget IA consommé (part vue / 5 %). Les critiques partent sans attendre le modèle.</p></section>
+    <section class="card"><h3>Logs par famille</h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Répartition des logs par famille"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${donut}<text x="44" y="48" text-anchor="middle" font-size="13" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${fmtN(ev.length)}</text></svg>
+      <div class="bars">${fam.map(([f,c,v]) => `<div><p><span>${f}</span><b>${ev.length ? Math.round(v / ev.length * 100) : 0} %</b></p><div class="track"><span style="width:${ev.length ? v / ev.length * 100 : 0}%;background:${c}"></span></div></div>`).join('')}</div></div></section>
+    <section class="card"><h3>Derniers événements <a href="#incidents">Tout</a></h3><ul class="feed">${feed || '<li class="empty">Rien à signaler.</li>'}</ul></section>
+  </aside></div>`;
+};
+V.incidents = () => {
+  const inc = byCli(incidents()).filter(i => !incFilter || i.lv === incFilter);
+  return `<h1>Incidents</h1><p class="sub">Regroupés par équipement, type et source ; triés par score. Cliquer pour le détail du calcul et l'avis de l'IA.</p>
+  <div class="bar"><select id="incLv" aria-label="Niveau"><option value="">Tous les niveaux</option>${['critique','grave','moyen'].map(l => `<option value="${l}" ${incFilter === l ? 'selected' : ''}>${LNAME[l]}</option>`).join('')}</select></div><section class="panel">${incRows(inc)}</section>`;
+};
+V.logs = () => `<h1>Flux de logs</h1><p class="sub">Format commun de l'adaptateur Zyxel ; cliquer une ligne pour voir la ligne brute et les champs extraits.</p>
+  <div class="bar"><input type="search" id="lq" placeholder="Rechercher (IP, équipement, message)" value="${esc(logFilter.q)}" aria-label="Recherche">
+  <select id="lfam" aria-label="Famille"><option value="">Toutes familles</option>${['Pare-feu','Switch','Borne'].map(f => `<option ${logFilter.fam === f ? 'selected' : ''}>${f}</option>`).join('')}</select>
+  <select id="llv" aria-label="Niveau"><option value="">Tous niveaux</option>${LEVELS.map(l => `<option value="${l[0]}" ${logFilter.lv === l[0] ? 'selected' : ''}>${LNAME[l[0]]}</option>`).join('')}</select>
+  <button class="btn" id="lpause">${paused ? 'Reprendre le flux' : 'Mettre en pause'}</button><span class="live ${paused ? 'off' : ''}">${paused ? 'en pause' : 'en direct'}</span></div>
+  <section class="panel" id="logbox">${logTable()}</section>`;
+function logTable() {
+  const q = logFilter.q.toLowerCase();
+  const list = byCli(events).filter(e => (!logFilter.fam || e.fam === logFilter.fam) && (!logFilter.lv || level(scoreOf(e,1).s) === logFilter.lv) && (!q || (e.raw + e.dev + e.msg).toLowerCase().includes(q))).slice(-150).reverse();
+  if (!list.length) return '<p class="empty">Aucun log ne correspond.</p>';
+  return `<table class="stack"><thead><tr><th>Heure</th><th>Client</th><th>Équipement</th><th>Catégorie</th><th>Niveau</th><th>Message</th></tr></thead><tbody>${list.map(e => { const s = scoreOf(e,1).s;
+    return `<tr class="click" data-ev="${e.id}"><td data-l="Heure" class="mono">${hhmm(e.t)}</td><td data-l="Client">${esc(cName(e.cli))}</td><td data-l="Équipement" class="mono">${e.dev}</td><td data-l="Catégorie">${esc(e.cat)}</td><td data-l="Niveau">${lvChip(level(s))}</td><td data-l="Message">${esc(e.msg)}</td></tr>` +
+    (openRow === e.id ? `<tr><td colspan="6"><div class="raw">${esc(e.raw)}</div><dl class="kv" style="margin-top:8px"><dt>Format</dt><dd>${e.fam === 'Switch' ? 'Syslog RFC 3164' : 'CEF/Syslog'}</dd><dt>Gravité constructeur</dt><dd>${e.vsev}</dd><dt>src</dt><dd class="mono">${e.src || '—'}</dd><dt>dst</dt><dd class="mono">${e.dst || '—'}</dd><dt>Empreinte</dt><dd class="mono">sha256:${(e.id * 2654435761 >>> 0).toString(16).padStart(8,'0')}…</dd></dl></td></tr>` : ''); }).join('')}</tbody></table>`;
+}
+V.devices = () => `<h1>Équipements</h1><p class="sub">Inventaire par client. Le seuil de silence dépend de la famille : pare-feu ${SILENCE['Pare-feu']} min, switch et borne ${SILENCE.Switch} min.</p>
+  <section class="panel"><table class="stack"><thead><tr><th>Équipement</th><th>Client</th><th>Famille</th><th>Modèle</th><th>Firmware</th><th>Source</th><th>Criticité</th><th class="num">Dernier log</th><th></th></tr></thead><tbody>${byCli(devices).map(d => `<tr><td data-l="Équipement" class="mono">${d.id}</td><td data-l="Client">${esc(cName(d.cli))}</td><td data-l="Famille">${d.fam}</td><td data-l="Modèle">${d.model}</td><td data-l="Firmware" class="mono">${d.fw}</td><td data-l="Source">${d.src}</td><td data-l="Criticité">${d.crit === 'tete' ? 'Pare-feu de tête' : d.crit === 'coeur' ? 'Switch cœur' : 'Standard'}</td><td data-l="Dernier log" class="num" style="color:${d.last > SILENCE[d.fam] ? 'var(--grav)' : 'inherit'}">${d.last} min</td><td><button class="btn" data-maint="${d.id}">${d.maint ? 'Fin de maintenance' : 'Déclarer maintenance'}</button></td></tr>`).join('')}</tbody></table></section>
+  <section class="panel" style="margin-top:16px"><h2>Fiche de réglage — pare-feu ZLD (USG FLEX, ATP)</h2><ol><li>Log &amp; Report &gt; Log Settings &gt; Remote Server 1 à 4 : en réserver un à SysLens.</li><li>Format : <b>CEF/Syslog</b> (le format Syslog simple insère l'année hors RFC 3164).</li><li>Adresse : le collecteur du site, port 514, facility local1.</li><li>Catégories : User, IDP, ADP, Anti-Malware, Sandbox, IP Reputation, DNS Threat Filter, IKE/IPsec, Interface, System Monitoring en « normal » ; Traffic Log selon le contrat client.</li></ol></section>`;
+V.catalog = () => { const prop = catalog.filter(c => c.st === 'propose');
+  return `<h1>Référentiel Zyxel</h1><p class="sub">${catalog.filter(c => c.st === 'actif').length} entrées actives · ${prop.length} propositions de l'IA en attente de validation. Une proposition ne note rien tant qu'elle n'est pas validée.</p>
+  ${prop.length ? `<section class="panel"><h2>Propositions à valider</h2><table class="stack"><thead><tr><th>Famille</th><th>Catégorie</th><th>Type de log</th><th class="num">Base</th><th>Source</th><th></th></tr></thead><tbody>${prop.map(c => `<tr><td data-l="Famille">${c.fam}</td><td data-l="Catégorie">${c.cat}</td><td data-l="Type">${esc(c.sig)}<br><span class="sub" style="font-size:13px">${esc(c.mean)}</span></td><td data-l="Base" class="num">${c.base}</td><td data-l="Source">${esc(c.src)}</td><td><button class="btn p" data-val="${c.k}">Valider</button> <button class="btn" data-rej="${c.k}">Rejeter</button></td></tr>`).join('')}</tbody></table></section>` : ''}
+  <section class="panel" style="margin-top:16px"><h2>Entrées actives</h2><table class="stack"><thead><tr><th>Famille</th><th>Catégorie</th><th>Type de log</th><th class="num">Base</th><th class="num">Plancher</th><th>Action recommandée</th><th>Source</th></tr></thead><tbody>${catalog.filter(c => c.st === 'actif').map(c => `<tr><td data-l="Famille">${c.fam}</td><td data-l="Catégorie">${c.cat}</td><td data-l="Type">${esc(c.sig)}</td><td data-l="Base" class="num"><input type="number" min="0" max="100" value="${c.base}" data-base="${c.k}" style="width:76px;text-align:right" aria-label="Note de base"></td><td data-l="Plancher" class="num">${c.floor || '—'}</td><td data-l="Action">${esc(c.act)}</td><td data-l="Source">${esc(c.src)}</td></tr>`).join('')}</tbody></table></section>`; };
+V.rules = () => `<h1>Règles de corrélation</h1><p class="sub">Version 1.0 des règles · « Tester » rejoue la règle sur les 24 h de logs chargées.</p>
+  <section class="panel"><table class="stack"><thead><tr><th>Règle</th><th>Famille</th><th>Niveau visé</th><th>Active</th><th></th></tr></thead><tbody>${rules.map((r,i) => `<tr><td data-l="Règle">${esc(r.n)}<div class="sub" id="rt${i}" style="margin:0;font-size:13px"></div></td><td data-l="Famille">${r.f}</td><td data-l="Niveau">${lvChip(r.lvl)}</td><td data-l="Active"><input type="checkbox" ${r.on ? 'checked' : ''} data-rule="${i}" aria-label="Activer ${esc(r.n)}" style="width:20px;height:20px"></td><td><button class="btn" data-test="${i}">Tester</button></td></tr>`).join('')}</tbody></table></section>`;
+V.docs = () => `<h1>Documentation Zyxel</h1><p class="sub">Base documentaire utilisée par l'IA et pour proposer des entrées de référentiel. Chaque passage garde son document et sa version.</p>
+  <div class="bar"><label class="btn p" style="display:inline-flex;align-items:center;cursor:pointer">Importer un PDF<input type="file" accept=".pdf,.html,.htm" id="docIn" multiple hidden></label><span class="sub" style="margin:0;font-size:13px">Démo : le fichier reste dans votre navigateur, rien n'est envoyé.</span></div>
+  <section class="panel"><table class="stack"><thead><tr><th>Document</th><th>Modèles</th><th>Version</th><th>Type</th><th class="num">Passages</th><th>État</th></tr></thead><tbody>${docs.map(d => `<tr><td data-l="Document">${esc(d.t)}</td><td data-l="Modèles">${esc(d.m)}</td><td data-l="Version" class="mono">${esc(d.v)}</td><td data-l="Type">${d.p}</td><td data-l="Passages" class="num">${d.n || '—'}</td><td data-l="État"><span class="tag ${d.s === 'Indexé' ? 'ok' : 'warn'}">${esc(d.s)}</span></td></tr>`).join('')}</tbody></table></section>`;
+const PROV = {ollama:['Ollama (local)','http://ia.exemple.local:11434',false],vllm:['vLLM (local)','http://ia.exemple.local:8000/v1',false],compat:['API compatible OpenAI (auto-hébergée)','https://ia.exemple.local/v1',false],cloud:['API cloud (fournisseur externe)','https://api.fournisseur.example/v1',true]};
+const ai = {prov:'ollama', url:PROV.ollama[1], model:'qwen3.6:27b', timeout:60, pseudo:true, provName(){return PROV[this.prov][0];}};
+V.ai = () => `<h1>Réglages IA</h1><p class="sub">Ollama local par défaut. Un fournisseur cloud demande une validation RGPD client par client.</p>
+  <section class="panel"><form class="form" id="aiForm"><label>Fournisseur<select id="aiProv">${Object.entries(PROV).map(([k,v]) => `<option value="${k}" ${ai.prov === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+  <label>Adresse<input type="text" inputmode="url" id="aiUrl" value="${esc(ai.url)}"></label><label>Modèle<input type="text" id="aiModel" value="${esc(ai.model)}"></label><label>Délai max (s)<input type="number" id="aiTo" value="${ai.timeout}" min="5" max="300"></label>
+  <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn p" type="submit">Enregistrer</button><button class="btn" type="button" id="aiTest">Tester la connexion</button><span id="aiMsg" class="sub" style="margin:0"></span></div></form>
+  ${PROV[ai.prov][2] ? `<p class="ai" style="margin-top:14px">Fournisseur cloud actif. Pseudonymisation : ${ai.pseudo ? 'activée' : 'désactivée'}. Clients autorisés : ${ai.allowed.map(id => esc(cName(id))).join(', ') || 'aucun'} ; les autres restent sur le modèle local.</p>` : ''}</section>
+  <section class="panel" style="margin-top:16px"><h2>Journal des appels</h2>${aiLog.length ? `<table class="stack"><thead><tr><th>Heure</th><th>Client</th><th>Incident</th><th>Fournisseur</th><th class="num">Caractères envoyés</th></tr></thead><tbody>${aiLog.slice().reverse().map(l => `<tr><td data-l="Heure" class="mono">${hhmm(l.t)}</td><td data-l="Client">${esc(cName(l.cli))}</td><td data-l="Incident">${esc(l.inc)}</td><td data-l="Fournisseur">${esc(l.p)}</td><td data-l="Caractères" class="num">${l.n}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Aucun appel dans cette session. Ouvrez un incident moyen ou grave pour en déclencher un.</p>'}</section>`;
+V.admin = () => `<h1>Administration</h1><p class="sub">Clients, rôles et conservation.</p><div class="grid2"><section class="panel"><h2>Clients supervisés</h2><table class="stack"><thead><tr><th>Client</th><th>Plage ouvrée</th><th class="num">Équipements</th><th>Rétention</th></tr></thead><tbody>${MON().map(c => `<tr><td data-l="Client">${esc(c.name)}</td><td data-l="Plage" class="mono">${c.hours[0]} h – ${c.hours[1]} h</td><td data-l="Équipements" class="num">${devices.filter(d => d.cli === c.id).length}</td><td data-l="Rétention">12 mois</td></tr>`).join('')}</tbody></table></section>
+  <section class="panel"><h2>Rôles</h2><dl class="kv"><dt>Admin plateforme</dt><dd>Tout, sauf effacer un événement</dd><dt>Admin réseau</dt><dd>Incidents, règles, équipements</dd><dt>Astreinte N1</dt><dd>Voir, acquitter, escalader</dd><dt>Lecture</dt><dd>Tableaux de bord et rapports</dd></dl><p class="sub" style="margin:12px 0 0;font-size:13px">MFA obligatoire. Aucun rôle ne peut supprimer un log avant la fin de la rétention.</p></section></div>
+  <section class="panel" style="margin-top:16px" id="updPanel">${updPanel()}</section>`;
+// --- extensions (cahier § 8.1 et 8.2)
+const EXT = [
+  {id:'zyxel', name:'Zyxel', type:'Constructeur', desc:'Pare-feux ZLD et uOS, switchs, bornes, Nebula : parsers CEF et syslog, API Nebula, référentiel.', caps:['logs.syslog','devices.pull','catalog'], v:'1.0.0', st:'on'},
+  {id:'odoo', name:'Odoo', type:'CRM / ERP', desc:'Importe les clients et leurs sites, crée les nouveaux clients et les tickets Helpdesk.', caps:['clients.pull','clients.push','tickets.push'], v:'1.0.0', st:'on', lastSync: Date.now() - 4 * 60e3},
+  {id:'telegram', name:'Telegram', type:'Notification', desc:'Envoie les alertes critiques et graves au groupe d’astreinte.', caps:['alerts.push'], v:'1.0.0', st:'config'},
+  {id:'smtp', name:'Mail (SMTP)', type:'Notification', desc:'Alertes et résumé quotidien par mail.', caps:['alerts.push','digest'], v:'1.0.0', st:'on'},
+  {id:'cisco', name:'Cisco', type:'Constructeur', desc:'Adaptateur prévu après la v1.', caps:[], v:'—', st:'soon'},
+  {id:'unifi', name:'Ubiquiti UniFi', type:'Constructeur', desc:'Adaptateur prévu après la v1.', caps:[], v:'—', st:'soon'},
+  {id:'fortinet', name:'Fortinet', type:'Constructeur', desc:'Adaptateur prévu après la v1.', caps:[], v:'—', st:'soon'}];
+const ST = {on:['Active','ok'], config:['À configurer','warn'], soon:['Prévue','']};
+let extSel = 'odoo', extMsg = '';
+const TAGS = ['Supervision réseau','Contrat maintenance','Infogérance','Prospect'];
+const PARTNERS = [
+  {n:'Client Démo A',co:true,t:['Supervision réseau','Contrat maintenance']},{n:'Client Démo B',co:true,t:['Supervision réseau']},
+  {n:'Client Démo C',co:true,t:['Supervision réseau','Infogérance']},{n:'Client Démo D',co:true,t:['Supervision réseau']},
+  {n:'Client Démo E',co:true,t:['Contrat maintenance']},{n:'Client Démo F',co:true,t:['Infogérance']},{n:'Client Démo G',co:true,t:['Prospect']},
+  {n:'Client Démo H',co:true,t:[]},{n:'Contact Démo 1',co:false,t:['Supervision réseau']},{n:'Contact Démo 2',co:false,t:[]}];
+const OC = {url:'https://odoo.exemple.local', db:'production', user:'svc-syslens', company:true, tags:['Supervision réseau'], freq:15, onRemove:'off'};
+const oMatch = () => PARTNERS.filter(p => (!OC.company || p.co) && (!OC.tags.length || p.t.some(t => OC.tags.includes(t))));
+function oPreview() { const m = oMatch(), out = PARTNERS.filter(p => !m.includes(p));
+  return `<div class="prev" id="ofPrev"><p style="margin:0"><b class="n">${m.length}</b> <span class="sub">fiche${m.length > 1 ? 's' : ''} Odoo correspondent sur ${PARTNERS.length} (démo)</span></p>
+  ${!OC.tags.length ? '<p class="note" style="color:var(--grav)">Aucune étiquette choisie : tous les comptes retenus par le premier filtre seront importés.</p>' : ''}
+  <div class="chips" style="margin-top:10px">${m.map(p => `<span class="tag ok">${esc(p.n)}</span>`).join('') || '<span class="note">Aucun client.</span>'}</div>
+  ${out.length ? `<details style="margin-top:10px"><summary class="note" style="cursor:pointer">Voir les ${out.length} exclus</summary><div class="chips" style="margin-top:8px">${out.map(p => `<span class="tag">${esc(p.n)}${p.co ? '' : ' · contact'}</span>`).join('')}</div></details>` : ''}</div>`; }
+const field = (l, id, v, type = 'text') => `<label>${l}<input type="${type}" id="${id}" value="${esc(v)}" data-of="${id}"></label>`;
+function extPanel(x) {
+  const head = `<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><h2 style="font-size:19px;margin:0">${esc(x.name)}</h2><p class="sub" style="margin:2px 0 0">${esc(x.type)} · version ${x.v} · ${x.st === 'soon' ? 'non installée' : 'extension officielle SysLens'}</p></div><span class="tag ${ST[x.st][1]}">${ST[x.st][0]}</span></div><p style="margin:10px 0 0">${esc(x.desc)}</p>${x.caps.length ? `<div class="chips" style="margin-top:10px">${x.caps.map(c => `<span class="tag mono">${c}</span>`).join('')}</div>` : ''}`;
+  if (x.id === 'odoo') return `${head}
+    <div class="fs"><h3>Connexion</h3><div class="form">${field('Adresse Odoo','o-url',OC.url,'url')}${field('Base de données','o-db',OC.db)}${field('Utilisateur technique','o-user',OC.user)}<label>Clé API<input type="password" value="demo-cle-non-reelle" autocomplete="off"></label></div>
+      <p class="note">API détectée : JSON-2 si Odoo 19 ou plus, sinon XML-RPC. Droits : lecture des contacts, création de tickets.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" data-xact="test">Tester la connexion</button><button class="btn p" data-xact="sync">Synchroniser maintenant</button></div><p class="note" id="xMsg">${esc(extMsg)}</p></div>
+    <div class="fs"><h3>Règles d'import des clients</h3>
+      <label class="sw"><input type="checkbox" data-of="company" ${OC.company ? 'checked' : ''}>Comptes société uniquement</label>
+      <p class="note" style="margin:14px 0 6px">Étiquettes Odoo à importer (au moins une)</p>
+      <div class="chips">${TAGS.map(t => `<label class="chip"><input type="checkbox" data-tag="${esc(t)}" ${OC.tags.includes(t) ? 'checked' : ''}>${esc(t)}</label>`).join('')}</div>
+      <div class="form" style="margin-top:14px"><label>Fréquence<select data-of="freq">${[5,15,60].map(f => `<option value="${f}" ${OC.freq === f ? 'selected' : ''}>Toutes les ${f} min</option>`).join('')}</select></label>
+      <label>Si l'étiquette est retirée<select data-of="onRemove"><option value="off" ${OC.onRemove === 'off' ? 'selected' : ''}>Désactiver le client (logs conservés)</option><option value="keep" ${OC.onRemove === 'keep' ? 'selected' : ''}>Garder le client actif</option></select></label></div>
+      ${oPreview()}
+      <p class="note">Filtre envoyé à Odoo : <span class="mono" id="ofDom" style="white-space:normal;word-break:break-all">${esc(JSON.stringify(oDomain()))}</span></p></div>
+    <div class="fs"><h3>Dernières synchronisations</h3><div class="mono-l">${[4,19,34].map(m => `il y a ${m} min · ${oMatch().length} clients à jour · 0 ajouté · 0 désactivé`).join('<br>')}</div></div>`;
+  if (x.id === 'zyxel') return `${head}<div class="fs"><h3>Réglages</h3><div class="form"><label>Syslog UDP<input type="number" value="514"></label><label>Syslog TCP (TLS)<input type="number" value="6514"></label><label>Clé API Nebula<input type="password" value="demo-cle-non-reelle"></label><label>Interrogation Nebula<select><option>Toutes les 5 min</option><option>Toutes les 15 min</option></select></label><label>Silence pare-feu (min)<input type="number" value="${SILENCE['Pare-feu']}"></label><label>Silence switch et borne (min)<input type="number" value="${SILENCE.Switch}"></label></div></div>`;
+  if (x.id === 'telegram') return `${head}<div class="fs"><h3>Réglages</h3><div class="form"><label>Jeton du bot<input type="password" placeholder="À renseigner"></label><label>Identifiant du groupe<input type="text" placeholder="À renseigner"></label></div><div class="chips" style="margin-top:12px"><label class="chip"><input type="checkbox" checked>Critique</label><label class="chip"><input type="checkbox" checked>Grave</label><label class="chip"><input type="checkbox">Moyen</label></div></div>`;
+  if (x.id === 'smtp') return `${head}<div class="fs"><h3>Réglages</h3><div class="form"><label>Serveur SMTP<input type="text" value="smtp.exemple.local"></label><label>Port<input type="number" value="587"></label><label>Expéditeur<input type="text" value="syslens@exemple.local"></label><label>Résumé quotidien<select><option>Tous les jours à 8 h</option><option>Désactivé</option></select></label></div></div>`;
+  return `${head}<div class="fs"><p class="sub">Une extension Constructeur fournit <span class="mono">detect</span>, <span class="mono">parse</span>, <span class="mono">pull</span>, <span class="mono">catalog</span> et <span class="mono">rules</span> (cahier, § 8). Elle s'installera ici comme Zyxel.</p></div>`;
+}
+const oDomain = () => [...(OC.company ? [['is_company','=',true]] : []), ...(OC.tags.length ? [['category_id.name','in',OC.tags]] : [])];
+const XICON = {smtp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>'};
+const xLogo = (id, name) => XICON[id] ? `<span class="xg">${XICON[id]}</span>` : `<span class="xg"><b>${esc(name[0])}</b>${LIVEMODE ? `<img src="/ext/${id}/logo" alt="" onload="xImg(this)" onerror="this.remove()">` : ''}</span>`;
+window.xImg = async i => { const p = i.parentNode; p.classList.add('has'); if (i.naturalWidth >= 64) return;
+  try { const r = await fetch(i.src, {cache: 'no-store'}); if (!/svg/.test(r.headers.get('content-type') || '')) p.classList.add('small'); } catch (e) {} };
+const XACT = {on:'Réglages', config:'Configurer', soon:'Bientôt'};
+const XSEC = [['Constructeur','Constructeurs','Lisent les logs et l’état des équipements'],['CRM / ERP','CRM et ERP','Fournissent les clients et reçoivent les tickets'],['Notification','Notifications','Préviennent l’astreinte']];
+function xCard(e) { return `<button class="xc ${e.st === 'soon' ? 'soon' : ''}" data-ext="${e.id}" aria-label="${esc(e.name)} : ${ST[e.st][0]}">
+  <span class="xtop">${xLogo(e.id, e.name)}<span class="tag ${ST[e.st][1]}">${ST[e.st][0]}</span></span>
+  <span><h3>${esc(e.name)}</h3><span class="ty">${esc(e.type)}</span></span>
+  <p>${esc(e.desc)}</p>
+  ${e.caps.length ? `<span class="caps">${e.caps.map(c => `<span>${c}</span>`).join('')}</span>` : ''}
+  <span class="xft"><span>${e.st === 'soon' ? 'Prévue après la v1' : 'v' + e.v + ' · officielle'}</span><em>${XACT[e.st]}</em></span></button>`; }
+V.extensions = () => { const n = st => EXT.filter(e => e.st === st).length;
+  return `<h1>Extensions</h1><p class="sub">Constructeurs, CRM et notifications se branchent ici. Chacun peut écrire une extension pour un autre outil sans toucher au cœur.</p>
+  <div class="xsum"><span class="tag ok">${n('on')} actives</span>${n('config') ? `<span class="tag warn">${n('config')} à configurer</span>` : ''}<span class="tag">${n('soon')} prévues</span></div>
+  ${XSEC.map(([t, h, d]) => { const list = EXT.filter(e => e.type === t); return `<section class="xsec"><h2>${h} <small>${list.length}</small></h2><p class="note" style="margin:-6px 0 10px">${d}</p><div class="xgrid">${list.map(xCard).join('')}${t === 'Constructeur' ? '' : ''}</div></section>`; }).join('')}
+  <section class="xsec"><h2>Développer</h2><div class="xgrid"><button class="xc new" data-ext="new"><span class="xg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span><span><h3>Créer une extension</h3><span class="ty">Constructeur, CRM ou notification</span></span><p>Un dossier, un manifeste, un logo et les fonctions de son type. Ses réglages apparaissent ici tout seuls.</p><span class="xft"><span>Guide et modèle</span><em>Ouvrir</em></span></button></div></section>`; };
+function newExtPanel() { return `<h2 style="font-size:19px;margin:0">Créer une extension</h2><p class="sub" style="margin:2px 0 0">Constructeur, CRM / ERP ou notification</p>
+  <div class="fs"><h3>Structure</h3><div class="xtree"><b>extensions/crm-sellsy/</b><br>├─ manifest.json<br>├─ logo.svg <span>· le logo affiché sur la carte, fourni par l'auteur</span><br>└─ index.js <span>· les fonctions du type</span></div></div>
+  <div class="fs"><h3>Manifeste</h3><div class="raw">{
+  "id": "crm-sellsy",
+  "type": "crm",
+  "version": "0.1.0",
+  "capabilities": ["clients.pull", "tickets.push"],
+  "settings": [
+    { "key": "url", "label": "Adresse", "type": "url" },
+    { "key": "token", "label": "Jeton API", "type": "secret" },
+    { "key": "tags", "label": "Étiquettes", "type": "multi" }
+  ]
+}</div></div>
+  <div class="fs"><h3>Fonctions par type</h3><dl class="kv"><dt>Constructeur</dt><dd class="mono">detect · parse · pull · catalog · rules</dd><dt>CRM / ERP</dt><dd class="mono">testConnection · listTags · listClients · pushTicket</dd><dt>Notification</dt><dd class="mono">send · test</dd></dl></div>`; }
+// --- configuration des extensions pas à pas (une question par écran)
+const XS = { odoo: OC, zyxel: {udp: 514, tcp: 6514, neb: '', nebFreq: 5, silFw: SILENCE['Pare-feu'], silSw: SILENCE.Switch},
+  telegram: {token: '', chat: '', chatName: '', lv: ['critique', 'grave'], tested: false},
+  smtp: {host: 'smtp.exemple.local', port: 587, tls: true, from: 'syslens@exemple.local', to: 'astreinte@exemple.local', digest: '8', tested: true} };
+OC.key = OC.key || 'demo-cle-non-reelle'; OC.tested = true;
+const xf = (label, k, v, type = 'text', ph = '', hint = '') => `<label>${label}<input type="${type}" data-k="${k}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" autocomplete="off" spellcheck="false">${hint ? `<span class="note">${hint}</span>` : ''}</label>`;
+const xsel = (label, k, v, opts) => `<label>${label}<select data-k="${k}">${opts.map(([val, t]) => `<option value="${val}" ${String(v) === String(val) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`;
+const xhow = items => `<ol class="xhow">${items.map(t => `<li>${t}</li>`).join('')}</ol>`;
+const xtest = (s, label) => `<div class="xtest"><ul class="prog" id="xprog">${(xw.log || []).map(p => `<li class="p-${p.st}"><i>${p.st === 'ok' ? '✓' : ''}</i><span>${esc(p.t)}</span></li>`).join('')}</ul>
+  ${s.tested ? `<p class="ai" style="margin-top:12px"><b>Tout est bon.</b> ${xw.real ? '' : '(simulation : le test réel arrive avec le serveur SysLens)'}</p>` : `<button class="btn p" data-xrun>${label}</button>`}${xw.err ? `<p class="note" role="alert" style="color:var(--crit)">${esc(xw.err)}</p>` : ''}</div>`;
+const XW = {
+  odoo: [
+    {t: 'Adresse de votre Odoo', d: "L'adresse que vous tapez pour ouvrir Odoo, et le nom de la base de données.",
+      body: s => `<div class="xf1">${xf('Adresse Odoo', 'url', s.url, 'url', 'https://odoo.mon-entreprise.fr')}${xf('Base de données', 'db', s.db, 'text', 'production', 'Elle apparaît dans le sélecteur de base, ou dans l’adresse après <span class="mono">?db=</span>.')}</div>`,
+      ok: s => /^https?:\/\/[^\s/]+\.[^\s]+/.test(s.url) && !!s.db, sum: s => `${s.url} · base ${s.db}`, reset: ['tested']},
+    {t: 'Compte technique', d: 'Utilisez un utilisateur dédié à SysLens, pas un compte personnel.',
+      body: s => xhow(['Dans Odoo, créez l’utilisateur <b>svc-syslens</b> (droits : Contacts en lecture, Assistance).', 'Connectez-vous avec lui : Préférences › Sécurité du compte › <b>Nouvelle clé API</b>.', 'Collez la clé ci-dessous. Elle ne sera plus affichée ensuite.']) + `<div class="xf1">${xf('Utilisateur', 'user', s.user, 'text', 'svc-syslens')}${xf('Clé API', 'key', s.key, 'password', 'Collez la clé ici')}</div>`,
+      ok: s => !!s.user && !!s.key, sum: s => `${s.user} · clé enregistrée`, reset: ['tested']},
+    {t: 'Vérification', d: 'SysLens se connecte avec ces informations et contrôle les droits.',
+      body: s => xtest(s, 'Lancer la vérification'), ok: s => s.tested, sum: s => s.tested ? 'Connexion vérifiée · API JSON-2' : 'Pas encore vérifiée',
+      run: s => [`Adresse ${s.url} joignable`, `Base « ${s.db} » trouvée`, `Utilisateur ${s.user} authentifié`, 'Droits : lecture des contacts, création de tickets', 'Odoo 19 détecté : API JSON-2']},
+    {t: 'Quels clients importer ?', d: 'Seules les fiches qui passent ces filtres deviennent des clients SysLens.',
+      body: s => `<label class="sw"><input type="checkbox" data-of="company" ${s.company ? 'checked' : ''}>Comptes société uniquement</label>
+        <p class="note" style="margin:16px 0 8px">Avec au moins une de ces étiquettes Odoo</p><div class="chips">${TAGS.map(t => `<label class="chip"><input type="checkbox" data-tag="${esc(t)}" ${s.tags.includes(t) ? 'checked' : ''}>${esc(t)}</label>`).join('')}</div>
+        ${oPreview()}<details class="note" style="margin-top:10px"><summary style="cursor:pointer">Filtre envoyé à Odoo</summary><span class="mono" id="ofDom" style="white-space:normal;word-break:break-all">${esc(JSON.stringify(oDomain()))}</span></details>`,
+      ok: s => s.tags.length > 0, sum: s => `${s.company ? 'Sociétés' : 'Toutes les fiches'} · étiquette ${s.tags.join(' ou ')} · ${oMatch().length} clients`},
+    {t: 'Synchronisation', d: 'SysLens relit Odoo à intervalle régulier pour suivre les nouveaux clients.',
+      body: s => `<div class="xf1">${xsel('Fréquence', 'freq', s.freq, [[5, 'Toutes les 5 min'], [15, 'Toutes les 15 min'], [60, 'Toutes les heures']])}${xsel("Si l'étiquette est retirée dans Odoo", 'onRemove', s.onRemove, [['off', 'Désactiver le client (logs conservés)'], ['keep', 'Garder le client actif']])}</div>`,
+      ok: () => true, sum: s => `Toutes les ${s.freq} min · ${s.onRemove === 'off' ? 'désactivation si étiquette retirée' : 'clients gardés'}`}],
+  zyxel: [
+    {t: 'Réception des logs', d: 'Les ports où les équipements Zyxel envoient leur syslog. Ce sont ceux à mettre dans Remote Server sur chaque pare-feu.',
+      body: s => `<div class="xf1">${xf('Syslog UDP', 'udp', s.udp, 'number', '514')}${xf('Syslog TCP chiffré (TLS)', 'tcp', s.tcp, 'number', '6514', 'Utilisé par les collecteurs installés chez les clients.')}</div>`,
+      ok: s => +s.udp > 0 && +s.tcp > 0, sum: s => `UDP ${s.udp} · TLS ${s.tcp}`},
+    {t: 'Nebula (facultatif)', d: 'Pour les clients gérés dans Nebula : état des équipements, tunnels VPN, firmware. Passez cette étape si vous n’utilisez pas Nebula.',
+      body: s => xhow(['Dans Nebula : Organisation › Paramètres › <b>Clé API</b>.', 'Collez-la ci-dessous.']) + `<div class="xf1">${xf('Clé API Nebula', 'neb', s.neb, 'password', 'Laisser vide pour ne pas utiliser Nebula')}${xsel('Interrogation', 'nebFreq', s.nebFreq, [[5, 'Toutes les 5 min'], [15, 'Toutes les 15 min']])}</div>`,
+      ok: () => true, sum: s => s.neb ? `Activé · toutes les ${s.nebFreq} min` : 'Non utilisé'},
+    {t: 'Équipement silencieux', d: 'Au-delà de ce délai sans aucun log, SysLens ouvre un incident « équipement silencieux ».',
+      body: s => `<div class="xf1">${xf('Pare-feu (minutes)', 'silFw', s.silFw, 'number', '15')}${xf('Switchs et bornes (minutes)', 'silSw', s.silSw, 'number', '30')}</div>`,
+      ok: s => +s.silFw > 0 && +s.silSw > 0, sum: s => `Pare-feu ${s.silFw} min · switchs et bornes ${s.silSw} min`,
+      save: s => { SILENCE['Pare-feu'] = +s.silFw; SILENCE.Switch = SILENCE.Borne = +s.silSw; }}],
+  telegram: [
+    {t: 'Créer le bot', d: 'Les alertes partent d’un bot Telegram qui appartient à l’entreprise.',
+      body: s => xhow(['Dans Telegram, écrivez à <b>@BotFather</b>.', 'Envoyez <span class="mono">/newbot</span> et choisissez un nom, par exemple « SysLens Astreinte ».', 'Il répond avec un <b>jeton</b> : collez-le ci-dessous.']) + `<div class="xf1">${xf('Jeton du bot', 'token', s.token, 'password', '123456789:AA…')}</div>`,
+      ok: s => /^\d{6,}:[\w-]{20,}$/.test(s.token.trim()), sum: s => s.bot ? `Bot ${s.bot}` : 'Jeton enregistré', reset: ['tested', 'chat', 'bot'],
+      check: async s => { if (!LIVEMODE) { s.bot = '@SysLensBot (démo)'; return; } const r = await tgCall({op: 'me', token: s.token.trim()}); s.bot = '@' + r.username; }},
+    {t: "Groupe d'astreinte", d: 'Le groupe où les alertes arriveront.',
+      body: s => xhow([`Ajoutez <b>${esc(s.bot || 'le bot')}</b> au groupe d’astreinte.`, 'Dans le groupe, envoyez <span class="mono">/start</span>.', 'Puis envoyez <span class="mono">/configurate</span>.']) +
+        (s.chat ? `<p class="ai"><b>Groupe reconnu :</b> ${esc(s.chatName)} <span class="mono">${esc(s.chat)}</span><br><span class="note">Le bot a répondu dans le groupe pour confirmer.</span></p><button class="lnk" data-xdetect>Choisir un autre groupe</button>`
+          : xw.polling ? `<div class="xwait"><i></i><span>En attente de <span class="mono">/start</span> puis <span class="mono">/configurate</span> dans le groupe…</span><button class="lnk" data-xstop>Arrêter</button></div>`
+          : `<button class="btn p" data-xdetect>Détecter le groupe</button>`) + `<p class="note" id="xErr" role="alert">${esc(xw.err || '')}</p>`,
+      ok: s => !!s.chat, sum: s => `${s.chatName} (${s.chat})`},
+    {t: 'Quelles alertes envoyer ?', d: 'Les critiques partent toujours tout de suite, sans attendre l’IA.',
+      body: s => `<div class="chips">${['critique', 'grave', 'moyen'].map(l => `<label class="chip"><input type="checkbox" data-klist="lv" value="${l}" ${s.lv.includes(l) ? 'checked' : ''}>${LNAME[l]}</label>`).join('')}</div>`,
+      ok: s => s.lv.length > 0, sum: s => s.lv.map(l => LNAME[l]).join(', ')},
+    {t: 'Message de test', d: 'Un vrai message part dans le groupe pour vérifier que tout fonctionne.',
+      body: s => xtest(s, 'Envoyer le message de test'), ok: s => s.tested, sum: s => s.tested ? 'Message de test reçu' : 'Pas encore testé',
+      run: s => [`Bot ${s.bot || ''} reconnu`, `Envoi dans « ${s.chatName} »`, 'Message de test envoyé'],
+      real: async s => { await tgCall({op: 'send', token: s.token.trim(), chat: s.chat, lv: s.lv.map(l => LNAME[l].toLowerCase()).join(', ')}); }}],
+  smtp: [
+    {t: 'Serveur d’envoi', d: 'Le serveur de messagerie qui enverra les alertes.',
+      body: s => `<div class="xf1">${xf('Serveur SMTP', 'host', s.host, 'text', 'smtp.mon-entreprise.fr')}${xf('Port', 'port', s.port, 'number', '587')}</div><label class="sw" style="margin-top:12px"><input type="checkbox" data-kbool="tls" ${s.tls ? 'checked' : ''}>Connexion chiffrée (STARTTLS)</label>`,
+      ok: s => !!s.host && +s.port > 0, sum: s => `${s.host}:${s.port}${s.tls ? ' · chiffré' : ''}`, reset: ['tested']},
+    {t: 'Expéditeur et destinataires', d: 'Qui envoie, et qui reçoit les alertes.',
+      body: s => `<div class="xf1">${xf('Expéditeur', 'from', s.from, 'email', 'syslens@…')}${xf('Destinataires', 'to', s.to, 'text', 'astreinte@…', 'Plusieurs adresses : séparez-les par une virgule.')}</div>`,
+      ok: s => /@/.test(s.from) && /@/.test(s.to), sum: s => `${s.from} → ${s.to}`, reset: ['tested']},
+    {t: 'Résumé quotidien', d: 'Un mail par jour avec les incidents de la veille, en plus des alertes.',
+      body: s => `<div class="xf1">${xsel('Envoi', 'digest', s.digest, [['8', 'Tous les jours à 8 h'], ['18', 'Tous les jours à 18 h'], ['off', 'Désactivé']])}</div>`,
+      ok: () => true, sum: s => s.digest === 'off' ? 'Désactivé' : `Tous les jours à ${s.digest} h`},
+    {t: 'Mail de test', d: 'Un mail de test part vers les destinataires.',
+      body: s => xtest(s, 'Envoyer le mail de test'), ok: s => s.tested, sum: s => s.tested ? 'Mail de test reçu' : 'Pas encore testé',
+      run: s => [`Connexion à ${s.host}:${s.port}`, s.tls ? 'Chiffrement STARTTLS négocié' : 'Connexion non chiffrée', `Mail envoyé à ${s.to}`]}]};
+let xw = null;
+const tgCall = async body => { const r = await fetch('/api/tg', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; };
+async function tgPoll() { const s = XS.telegram; xw.polling = true; xw.err = ''; xRender(); const t0 = Date.now();
+  while (xw && xw.polling && xw.id === 'telegram' && xw.step === 1) {
+    try { const r = LIVEMODE ? await tgCall({op: 'detect', token: s.token.trim()}) : (Date.now() - t0 > 2000 ? {found: true, chat: '-100' + Math.floor(1e9 + Math.random() * 9e9), title: 'Astreinte réseau (démo)'} : {found: false});
+      if (r.found) { s.chat = r.chat; s.chatName = r.title; xw.polling = false; xRender(); return; } }
+    catch (e) { xw.err = e.message; xw.polling = false; xRender(); return; }
+    if (Date.now() - t0 > 180e3) { xw.err = 'Rien reçu en 3 minutes. Vérifiez que le bot est bien dans le groupe, puis relancez.'; xw.polling = false; xRender(); return; }
+    await new Promise(r => setTimeout(r, 2500)); } }
+function xRows(id, edit) { return `<dl class="xrows">${XW[id].map((st, i) => `<div><dt>${esc(st.t)}</dt><dd>${esc(st.sum(XS[id]))}</dd>${edit ? `<button class="lnk" data-xgo="${i}">Modifier</button>` : ''}</div>`).join('')}</dl>`; }
+function xHead(x, sub) { return `<button class="btn" id="dClose" style="float:right">Fermer</button><div class="xdh">${xLogo(x.id, x.name)}<div><h2>${esc(x.name)}</h2><p class="sub">${sub}</p></div></div>`; }
+function xRender() { const x = EXT.find(e => e.id === xw.id), s = XS[x.id], W = XW[x.id];
+  if (xw.step === 'sum') {
+    const extra = x.id === 'odoo' ? `<button class="btn" data-xact="sync">Synchroniser maintenant</button>` : '';
+    $('#drawer').innerHTML = xHead(x, `${esc(x.type)} · <span class="tag ${ST[x.st][1]}">${ST[x.st][0]}</span>`) + `<p style="margin:14px 0 0">${esc(x.desc)}</p>${xRows(x.id, true)}
+      <div class="wnav"><button class="btn" data-xgo="0">Tout reprendre depuis le début</button>${extra}</div><p class="note" id="xMsg">${esc(extMsg)}</p>`;
+    return; }
+  const n = W.length + 1, i = xw.step, last = i === W.length, st = W[i];
+  const bar = `<div class="xbar" role="progressbar" aria-valuemin="1" aria-valuemax="${n}" aria-valuenow="${i + 1}">${Array.from({length: n}, (_, k) => `<i class="${k < i ? 'done' : k === i ? 'cur' : ''}"></i>`).join('')}</div><p class="xstep">Étape ${i + 1} sur ${n}</p>`;
+  const body = last ? `<h2 class="xh">Récapitulatif</h2><p class="sub">Vérifiez, puis enregistrez. Vous pourrez tout modifier plus tard.</p>${xRows(x.id, true)}`
+    : `<h2 class="xh">${esc(st.t)}</h2><p class="sub">${st.d}</p><div class="xbody">${st.body(s)}${st.check && xw.err ? `<p class="note" role="alert" style="color:var(--crit);margin-top:10px">${esc(xw.err)}</p>` : ''}</div>`;
+  $('#drawer').innerHTML = xHead(x, x.st === 'on' ? 'Modifier la configuration' : 'Configuration') + bar + body +
+    `<div class="wnav"><button class="btn" data-xback>${i === 0 ? 'Annuler' : 'Retour'}</button><button class="btn p" id="xNext" data-xnext ${!last && !st.ok(s) ? 'disabled' : ''}>${last ? 'Enregistrer' : 'Continuer'}</button></div>`;
+  const f = $('#drawer .xbody input:not([type=checkbox]), #drawer .xbody select'); if (f && !reduce()) f.focus({preventScroll: true}); }
+function openExt(id) { extMsg = '';
+  $('#drawer').dataset.key = ''; $('#drawer').classList.add('open'); $('#veil').classList.add('on');
+  if (id === 'new') { $('#drawer').innerHTML = `<button class="btn" id="dClose" style="float:right">Fermer</button>` + newExtPanel(); $('#dClose').focus(); return; }
+  const x = EXT.find(e => e.id === id);
+  if (x.st === 'soon' || !XW[id]) { $('#drawer').innerHTML = xHead(x, `${esc(x.type)} · ${ST[x.st][0]}`) + `<p style="margin:14px 0 0">${esc(x.desc)}</p><div class="fs"><p class="sub">Une extension Constructeur fournit <span class="mono">detect</span>, <span class="mono">parse</span>, <span class="mono">pull</span>, <span class="mono">catalog</span> et <span class="mono">rules</span>. Elle s'installera ici comme Zyxel, avec sa propre configuration pas à pas.</p></div>`; $('#dClose').focus(); return; }
+  xw = {id, step: x.st === 'on' ? 'sum' : 0, log: []}; xRender(); $('#dClose').focus(); }
+function xOk() { const b = $('#xNext'); if (b && xw && xw.step !== 'sum' && xw.step < XW[xw.id].length) b.disabled = !XW[xw.id][xw.step].ok(XS[xw.id]); }
+async function xRun() { const s = XS[xw.id], st = XW[xw.id][xw.step]; xw.err = ''; xw.real = false;
+  if (st.real && LIVEMODE) { xw.log = st.run(s).map(t => ({t, st: 'run'})); s.tested = false; xRender();
+    try { await st.real(s); xw.log.forEach(p => p.st = 'ok'); s.tested = true; xw.real = true; } catch (e) { xw.log = []; xw.err = e.message; } xRender(); return; }
+  xw.log = st.run(s).map((t, k) => ({t, st: k ? 'todo' : 'run'})); s.tested = false; xRender();
+  let k = 0; const tick = () => { if (!xw || !$('#xprog')) return; xw.log[k].st = 'ok'; k++; if (k < xw.log.length) { xw.log[k].st = 'run'; $('#xprog').innerHTML = xw.log.map(p => `<li class="p-${p.st}"><i>${p.st === 'ok' ? '✓' : ''}</i><span>${esc(p.t)}</span></li>`).join(''); setTimeout(tick, reduce() ? 120 : 600); } else { s.tested = true; xRender(); } };
+  setTimeout(tick, reduce() ? 120 : 600); }
+document.addEventListener('click', async e => { if (!xw || !e.target.closest('#drawer')) return; const t = e.target;
+  const go = t.closest('[data-xgo]'); if (go) { xw.step = +go.dataset.xgo; xw.log = []; xw.err = ''; xw.polling = false; xRender(); return; }
+  if (t.closest('[data-xback]')) { xw.polling = false; xw.err = ''; if (xw.step === 0) { if (EXT.find(z => z.id === xw.id).st === 'on') { xw.step = 'sum'; xRender(); } else closeInc(); } else { xw.step--; xw.log = []; xRender(); } return; }
+  if (t.closest('[data-xnext]')) { const W = XW[xw.id], s = XS[xw.id];
+    if (xw.step < W.length) { const st = W[xw.step]; if (!st.ok(s)) return;
+      if (st.check) { const b = $('#xNext'); b.disabled = true; b.textContent = 'Vérification…'; try { await st.check(s); } catch (err) { xw.err = err.message; xRender(); return; } }
+      xw.step++; xw.log = []; xw.err = ''; xw.polling = false; xRender(); return; }
+    W.forEach(st => st.save && st.save(s)); const x = EXT.find(z => z.id === xw.id); x.st = 'on'; if (x.id === 'odoo') x.lastSync = Date.now();
+    extMsg = 'Configuration enregistrée.'; xw.step = 'sum'; xRender(); nav(); if (route() === 'extensions') $('#view').innerHTML = V.extensions(); return; }
+  if (t.closest('[data-xrun]')) { xRun(); return; }
+  if (t.closest('[data-xdetect]')) { XS.telegram.chat = ''; tgPoll(); return; }
+  if (t.closest('[data-xstop]')) { xw.polling = false; xRender(); return; } });
+const xSet = t => { const s = XS[xw.id], st = XW[xw.id][xw.step];
+  if (t.dataset.k) s[t.dataset.k] = t.type === 'number' ? t.value : t.value;
+  else if (t.dataset.kbool) s[t.dataset.kbool] = t.checked;
+  else if (t.dataset.klist) { const l = t.dataset.klist; s[l] = t.checked ? [...new Set([...s[l], t.value])] : s[l].filter(v => v !== t.value); }
+  if (st && st.reset) st.reset.forEach(r => { s[r] = r === 'chat' || r === 'bot' ? '' : false; }); if (xw.err) { xw.err = ''; const e = $('#drawer .xbody [role=alert]'); if (e) e.textContent = ''; } xOk(); };
+document.addEventListener('input', e => { if (xw && e.target.closest('#drawer') && (e.target.dataset.k)) xSet(e.target); });
+document.addEventListener('change', e => { if (!xw || !e.target.closest('#drawer')) return; const t = e.target;
+  if (t.dataset.k || t.dataset.kbool || t.dataset.klist) xSet(t); else if (t.dataset.tag || t.dataset.of) setTimeout(xOk); });
+// --- détail d'incident
+function openInc(key) {
+  const i = incidents().find(x => x.key === key); if (!i) return;
+  const c = CAT[i.last.k], d = devices.find(x => x.id === i.last.dev);
+  let aiBlock;
+  if (i.lv === 'critique') aiBlock = `<p class="ai"><b>Alerte envoyée sans attendre l'IA</b> (Telegram + mail, astreinte). Avis ajouté ensuite : ${esc((AI_TXT[i.last.k] || ['','Poste interne concerné identifié par son IP locale ; isolement recommandé.'])[1])}</p>`;
+  else { const t = AI_TXT[i.last.k] || ['À vérifier','Pas assez de contexte dans le référentiel pour trancher ; à qualifier par un admin.'];
+    aiBlock = `<p class="ai"><b>${t[0]}</b> — ${esc(t[1])}<br><span class="note">${esc(ai.provName())} · ${esc(ai.model)}${PROV[ai.prov][2] && ai.allowed.includes(i.last.cli) ? ' · données pseudonymisées' : ''} · source citée : ${esc(c ? c.src : 'règle de silence')}</span></p>`;
+    if (!aiLog.some(l => l.key === key)) aiLog.push({key, t: Date.now(), cli: i.last.cli, inc: c ? c.sig : 'Silence', p: PROV[ai.prov][2] && ai.allowed.includes(i.last.cli) ? ai.provName() : PROV.ollama[0], n: 900 + i.list.length * 180}); }
+  let acc = 0; const segs = i.sc.parts.filter(p => p[1] > 0).map((p, j) => { const w = Math.max(0, Math.min(p[1], 100 - acc)); acc += w;
+    return `<span title="${esc(p[0])} : ${p[1]}" style="width:${w}%;background:color-mix(in srgb,var(--c) ${Math.max(35, 100 - j * 18)}%,transparent)"></span>`; }).join('');
+  const lift = i.sc.s > acc ? `<span title="Plancher du référentiel" style="width:${i.sc.s - acc}%;background:repeating-linear-gradient(45deg,var(--c) 0 3px,transparent 3px 6px)"></span>` : '';
+  $('#drawer').innerHTML = `<button class="btn" id="dClose" style="float:right">Fermer</button><p style="margin:0">${lvChip(i.lv)}</p><h2 style="font-size:22px;margin:6px 0 2px">${esc(c ? c.sig : 'Équipement silencieux')}</h2><p class="sub">${esc(cName(i.last.cli))} · <span class="mono">${d.id}</span> · ${d.model} · ${ago(i.last.t)}</p>
+  <h2 style="margin-top:20px">Calcul du score <span class="score c-${i.lv}" style="float:right">${i.sc.s} / 100</span></h2>
+  <div class="c-${i.lv}"><div class="sbar">${segs}${lift}<i style="left:30%"></i><i style="left:60%"></i><i style="left:85%"></i></div><div class="sscale"><b style="left:30%">moyen 30</b><b style="left:60%">grave 60</b><b style="left:85%">critique 85</b></div></div>
+  <div class="calc">${i.sc.parts.map(p => `<span>${esc(p[0])}</span><span class="num">${p[1] > 0 && p !== i.sc.parts[0] ? '+' : ''}${p[1]}</span>`).join('')}${i.sc.floor ? `<span>Plancher du référentiel</span><span class="num">${i.sc.floor}</span>` : ''}<span class="t">Score retenu</span><span class="num t">${i.sc.s} · ${LNAME[i.lv]}</span></div>
+  <h2 style="margin-top:20px">Avis de l'IA</h2>${aiBlock}
+  ${c ? `<h2 style="margin-top:20px">Référentiel</h2><dl class="kv"><dt>Signification</dt><dd>${esc(c.mean)}</dd><dt>Action</dt><dd>${esc(c.act)}</dd><dt>Source</dt><dd>${esc(c.src)}</dd></dl>` : ''}
+  ${i.list.length ? `<h2 style="margin-top:20px">Événements liés (${i.list.length})</h2><div class="raw">${i.list.slice(-6).map(e => esc(e.raw)).join('\n')}</div>` : ''}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px"><button class="btn" data-st="acquitté">Acquitter</button><button class="btn" data-st="clos">Clore</button><button class="btn p" id="odoo">Créer le ticket Odoo</button></div><p id="dMsg" class="sub" style="margin-top:8px"></p>`;
+  $('#drawer').classList.add('open'); $('#veil').classList.add('on'); $('#drawer').dataset.key = key; $('#dClose').focus();
+}
+function closeInc() { if (xw) xw.polling = false; $('#drawer').classList.remove('open'); $('#veil').classList.remove('on'); }
+// --- avertissement RGPD
+ai.allowed = [];
+function rgpdModal(onOk, onCancel) {
+  $('#modal').innerHTML = `<div class="panel"><h2 id="mTitle" style="font-size:20px">Activer une IA cloud : avertissement RGPD</h2>
+  <p>Les logs contiennent des données personnelles (adresses IP, identifiants, adresses MAC, sites visités). Votre entreprise les traite pour ses clients : un fournisseur d'IA cloud devient un <b>sous-traitant ultérieur</b> (art. 28 RGPD), ce qui suppose l'autorisation écrite de chaque client et un contrat conforme. Si ses serveurs sont hors UE, les règles de transfert (art. 44 et suivants) s'appliquent aussi.</p>
+  <label class="check"><input type="checkbox" class="rq"> <span>J'ai lu cet avertissement et j'engage ma responsabilité d'administrateur plateforme.</span></label>
+  <label class="check"><input type="checkbox" class="rq" checked disabled> <span>Pseudonymisation avant envoi (IP, utilisateurs, MAC) : imposée, non désactivable.</span></label>
+  <label class="check"><input type="checkbox" class="rq"> <span>Chaque appel sera journalisé (client, incident, volume envoyé).</span></label>
+  <h2 style="margin-top:12px">Clients autorisés</h2><p class="sub" style="margin-top:0">Référence de l'autorisation écrite obligatoire ; sans elle, le client reste sur le modèle local.</p>
+  ${MON().map(c => `<label style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;margin-bottom:6px"><span>${esc(c.name)}</span><input type="text" data-auth="${c.id}" placeholder="Réf. autorisation (ex. avenant n°)"></label>`).join('')}
+  <p class="sub" style="font-size:13px">Ce rappel n'est pas un avis juridique ; validation finale par le référent RGPD de l'entreprise.</p>
+  <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mNo">Rester en local</button><button class="btn p" id="mOk" disabled>Activer pour les clients autorisés</button></div></div>`;
+  $('#modal').classList.add('on'); $('#veil').classList.add('on');
+  const chk = () => { $('#mOk').disabled = ![...document.querySelectorAll('.rq')].every(x => x.checked) || ![...document.querySelectorAll('[data-auth]')].some(x => x.value.trim()); };
+  $('#modal').oninput = chk; $('#modal').onchange = chk;
+  $('#mNo').onclick = () => { closeModal(); onCancel(); };
+  $('#mOk').onclick = () => { ai.allowed = [...document.querySelectorAll('[data-auth]')].filter(x => x.value.trim()).map(x => x.dataset.auth); closeModal(); onOk(); };
+  $('#mNo').focus();
+}
+function closeModal() { $('#modal').classList.remove('on'); $('#veil').classList.remove('on'); }
+// --- rendu et événements
+function render() { nav(); let h = V[route()]();
+  if (fCli && !devices.some(d => d.cli === fCli)) h = `<p class="ai" style="margin-bottom:16px"><b>${esc(cName(fCli))}</b> n'a encore aucun équipement rattaché. Installez un collecteur sur son site, ou associez son organisation Nebula, depuis Paramètres > Extensions.</p>` + h;
+  $('#view').innerHTML = h; }
+window.addEventListener('hashchange', render);
+document.addEventListener('click', e => {
+  const t = e.target, row = t.closest('[data-inc]'), ev = t.closest('[data-ev]'), lv = t.closest('[data-lv]');
+  if (lv) incFilter = lv.dataset.lv === 'benin' ? '' : lv.dataset.lv;
+  if (lv && lv.dataset.lv === 'benin') { e.preventDefault(); logFilter.lv = 'benin'; location.hash = 'logs'; return; }
+  if (row) return openInc(row.dataset.inc);
+  if (ev) { openRow = openRow === +ev.dataset.ev ? null : +ev.dataset.ev; $('#logbox').innerHTML = logTable(); return; }
+  if (t.id === 'dClose' || t.id === 'veil') { if ($('#modal').classList.contains('on')) { closeModal(); render(); } else closeInc(); return; }
+  if (t.dataset.st) { incState[$('#drawer').dataset.key] = t.dataset.st; $('#dMsg').textContent = 'Statut : ' + t.dataset.st + ' (tracé à votre nom).'; render(); return; }
+  if (t.id === 'odoo') { $('#dMsg').textContent = 'Démo : en production, ticket helpdesk.ticket créé par svc-siem avec x_incident_ref = ' + $('#drawer').dataset.key.split('|').slice(0,3).join('-') + '.'; return; }
+  if (t.id === 'lpause') { paused = !paused; render(); return; }
+  if (t.dataset.maint) { const d = devices.find(x => x.id === t.dataset.maint); d.maint = !d.maint; render(); return; }
+  if (t.dataset.val || t.dataset.rej) { const c = CAT[t.dataset.val || t.dataset.rej]; if (t.dataset.val) c.st = 'actif'; else catalog.splice(catalog.indexOf(c), 1); render(); return; }
+  if (t.dataset.test) { const r = rules[+t.dataset.test], hits = r.k === 'silence' ? devices.filter(d => d.last > SILENCE[d.fam]).length : events.filter(x => x.k === r.k).length;
+    const grp = r.k === 'silence' ? hits : incidents().filter(i => i.last.k === r.k).length; $('#rt' + t.dataset.test).textContent = `${hits} événement${hits > 1 ? 's' : ''} correspondant${hits > 1 ? 's' : ''} en 24 h → ${grp} incident${grp > 1 ? 's' : ''}.`; return; }
+  if (t.id === 'aiTest') { const local = !PROV[ai.prov][2]; $('#aiMsg').textContent = 'Démo : aucune requête réelle. En production, appel GET ' + ai.url + (ai.prov === 'ollama' ? '/api/tags' : '/models') + (local ? '' : ' avec données pseudonymisées') + '.'; return; }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'incLv') { incFilter = t.value; render(); }
+  if (t.id === 'lfam') { logFilter.fam = t.value; $('#logbox').innerHTML = logTable(); }
+  if (t.id === 'llv') { logFilter.lv = t.value; $('#logbox').innerHTML = logTable(); }
+  if (t.dataset.rule) rules[+t.dataset.rule].on = t.checked;
+  if (t.dataset.base) { CAT[t.dataset.base].base = Math.max(0, Math.min(100, +t.value || 0)); nav(); }
+  if (t.id === 'docIn') { for (const f of t.files) docs.push({t: f.name, m: 'à préciser', v: '—', p: f.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'HTML', s: "En file d'indexation", n: 0}); render(); }
+  if (t.id === 'aiProv') { const k = t.value; $('#aiUrl').value = PROV[k][1]; }
+});
+document.addEventListener('input', e => { if (e.target.id === 'lq') { logFilter.q = e.target.value; $('#logbox').innerHTML = logTable(); } });
+document.addEventListener('submit', e => { if (e.target.id !== 'aiForm') return; e.preventDefault();
+  const k = $('#aiProv').value, save = () => { ai.prov = k; ai.url = $('#aiUrl').value; ai.model = $('#aiModel').value; ai.timeout = +$('#aiTo').value; render(); $('#aiMsg').textContent = 'Enregistré.'; };
+  if (PROV[k][2] && !PROV[ai.prov][2]) rgpdModal(save, () => { render(); }); else { if (!PROV[k][2]) ai.allowed = []; save(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal').classList.contains('on')) { closeModal(); render(); } else closeInc(); } });
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-per]'); if (b) { per = +b.dataset.per; render(); return; }
+  if (e.target.closest('#bell')) { incFilter = 'critique'; if (route() === 'incidents') render(); else location.hash = 'incidents'; }
+});
+$('#q').addEventListener('keydown', e => { if (e.key !== 'Enter') return; logFilter.q = e.target.value.trim(); openRow = null; if (route() === 'logs') render(); else location.hash = 'logs'; });
+try { if (localStorage.getItem('syslens-mini') === '1') $('.app').classList.add('mini'); } catch (e) {}
+$('#fold').addEventListener('click', () => { const m = $('.app').classList.toggle('mini'); $('#fold').setAttribute('aria-label', m ? 'Déplier la barre latérale' : 'Réduire la barre latérale'); try { localStorage.setItem('syslens-mini', m ? '1' : '0'); } catch (e) {} });
+document.addEventListener('click', e => {
+  const x = e.target.closest('[data-ext]'); if (x) { openExt(x.dataset.ext); return; }
+  const a = e.target.closest('[data-xact]'); if (!a) return;
+  const od = EXT.find(z => z.id === 'odoo');
+  if (a.dataset.xact === 'test') extMsg = 'Démo : aucune requête réelle. En production, appel POST ' + OC.url + '/json/2/res.partner/search_count avec ce filtre.';
+  else { od.lastSync = Date.now(); extMsg = 'Synchronisation lancée : ' + oMatch().length + ' clients à jour (démo).'; }
+  $('#xMsg').textContent = extMsg; nav();
+});
+document.addEventListener('change', e => {
+  const t = e.target; let hit = false;
+  if (t.dataset.tag) { const v = t.dataset.tag; OC.tags = t.checked ? [...OC.tags, v] : OC.tags.filter(z => z !== v); hit = true; }
+  else if (t.dataset.of === 'company') { OC.company = t.checked; hit = true; }
+  else if (t.dataset.of === 'freq') OC.freq = +t.value;
+  else if (t.dataset.of === 'onRemove') OC.onRemove = t.value;
+  else if (t.dataset.of && t.dataset.of.startsWith('o-')) OC[t.dataset.of.slice(2)] = t.value;
+  if (hit && $('#ofPrev')) { $('#ofPrev').outerHTML = oPreview(); $('#ofDom').textContent = JSON.stringify(oDomain()); }
+});
+// --- sélecteur de périmètre (recherche, pas de liste déroulante)
+const norm = t => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+let pickItems = [], pickIdx = 0, recent = [];
+try { recent = JSON.parse(localStorage.getItem('syslens-recent') || '[]').filter(id => clients.some(c => c.id === id)); } catch (e) {}
+function hiName(name, q) { if (!q) return esc(name); const i = norm(name).indexOf(q); return i < 0 ? esc(name) : esc(name.slice(0, i)) + '<mark>' + esc(name.slice(i, i + q.length)) + '</mark>' + esc(name.slice(i + q.length)); }
+function pickRender() {
+  const q = norm($('#pickQ').value.trim()), open = incidents().filter(i => i.st !== 'clos');
+  const st = id => { const l = open.filter(i => i.last.cli === id); return {c: l.filter(i => i.lv === 'critique').length, g: l.filter(i => i.lv === 'grave').length, n: l.length}; };
+  const row = (c, h) => { const k = st(c.id), nd = devices.filter(d => d.cli === c.id).length;
+    return {id: c.id, h, html: `<span class="pa">${c.id === '' ? '∗' : esc(c.ref.slice(-2))}</span><span><b>${hiName(c.name, q)}</b><span>${c.id === '' ? clients.length.toLocaleString('fr-FR') + ' clients' : esc(c.ref) + ' · ' + (nd ? nd + ' équipement' + (nd > 1 ? 's' : '') : 'aucun équipement')}</span></span>${k.c ? `<em class="score c-critique">${k.c} crit.</em>` : k.g ? `<em class="score c-grave">${k.g} grave${k.g > 1 ? 's' : ''}</em>` : ''}`}; };
+  const ALL = {id: '', name: 'Tous les clients', ref: ''};
+  if (!q) {
+    const watch = MON().map(c => [c, st(c.id)]).filter(x => x[1].c || x[1].g).sort((a, b) => b[1].c - a[1].c || b[1].g - a[1].g).map(x => x[0]);
+    pickItems = [row(ALL, null), ...watch.map((c, i) => row(c, i ? null : 'À surveiller')), ...recent.filter(id => !watch.some(w => w.id === id)).map(id => clients.find(c => c.id === id)).map((c, i) => row(c, i ? null : 'Récents'))];
+    $('#pickF').textContent = clients.length.toLocaleString('fr-FR') + ' clients · tapez pour chercher';
+  } else {
+    const m = clients.filter(c => norm(c.name + ' ' + c.ref).includes(q)).sort((a, b) => (norm(b.name).startsWith(q) - norm(a.name).startsWith(q)) || (devices.some(d => d.cli === b.id) - devices.some(d => d.cli === a.id)) || a.name.localeCompare(b.name));
+    pickItems = m.slice(0, 30).map(c => row(c, null));
+    $('#pickF').textContent = m.length ? m.length.toLocaleString('fr-FR') + ' résultat' + (m.length > 1 ? 's' : '') + (m.length > 30 ? ' · 30 affichés, affinez' : '') : 'Aucun client ne correspond';
+  }
+  pickIdx = Math.min(pickIdx, Math.max(0, pickItems.length - 1));
+  $('#pickL').innerHTML = pickItems.map((it, i) => `${it.h ? `<h4>${it.h}</h4>` : ''}<div class="pi ${i === pickIdx ? 'hl' : ''}" role="option" id="po${i}" data-pick="${it.id}" aria-selected="${it.id === fCli}">${it.html}</div>`).join('');
+  $('#pickQ').setAttribute('aria-activedescendant', 'po' + pickIdx);
+}
+function pickOpen() { const r = $('#scopeBtn').getBoundingClientRect(), vis = r.width > 0; $('#pick').style.top = (vis ? r.bottom + 6 : 70) + 'px'; $('#pick').style.left = (vis ? r.left : 10) + 'px'; $('#pick').hidden = false; $('#scopeBtn').setAttribute('aria-expanded', 'true'); $('#pickQ').value = ''; pickIdx = 0; pickRender(); $('#pickQ').focus(); }
+function pickClose(back = true) { $('#pick').hidden = true; $('#scopeBtn').setAttribute('aria-expanded', 'false'); if (back) $('#scopeBtn').focus(); }
+function pickSet(id) { fCli = id; $('#scopeName').textContent = id ? cName(id) : 'Tous les clients';
+  if (id) { recent = [id, ...recent.filter(x => x !== id)].slice(0, 5); try { localStorage.setItem('syslens-recent', JSON.stringify(recent)); } catch (e) {} }
+  pickClose(); render(); }
+$('#scopeBtn').addEventListener('click', () => $('#pick').hidden ? pickOpen() : pickClose());
+$('#pickQ').addEventListener('input', () => { pickIdx = 0; pickRender(); });
+$('#pickQ').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIdx = (pickIdx + (e.key === 'ArrowDown' ? 1 : -1) + pickItems.length) % pickItems.length; pickRender(); $('#po' + pickIdx).scrollIntoView({block: 'nearest'}); }
+  else if (e.key === 'Enter' && pickItems[pickIdx]) { e.preventDefault(); pickSet(pickItems[pickIdx].id); }
+  else if (e.key === 'Escape') { e.stopPropagation(); pickClose(); } });
+$('#pickL').addEventListener('click', e => { const it = e.target.closest('[data-pick]'); if (it) pickSet(it.dataset.pick); });
+document.addEventListener('mousedown', e => { if (!$('#pick').hidden && !e.target.closest('#pick') && !e.target.closest('#scopeBtn')) pickClose(false); });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#pick').hidden ? pickOpen() : pickClose(); } });
+// --- page Clients : liste Odoo, assistant de connexion, fiche client
+const ORGS = Array.from({length: 12}, (_, i) => 'Org Démo ' + String(i + 1).padStart(2, '0'));
+const COLLECTORS = [{id:'col-a', cli:'cli-07', name:'Collecteur Démo A (N100)'},{id:'col-b', cli:'cli-12', name:'Collecteur Démo B (RPi4)'},{id:'col-c', cli:'cli-21', name:'Collecteur Démo C (N100)'},{id:'col-d', cli:'cli-33', name:'Collecteur Démo D (N100)'}];
+if (LIVEMODE) COLLECTORS.push({id:'col-test', cli:'cli-test', name:'Récepteur de test (Mac, UDP 514)'});
+const PENDING = [];
+const BRANDS = [{id:'zyxel', name:'Zyxel', ok:true, sub:'Pare-feux, switchs, bornes, Nebula'},{id:'cisco', name:'Cisco', sub:'Extension prévue'},{id:'unifi', name:'Ubiquiti', sub:'Extension prévue'},{id:'fortinet', name:'Fortinet', sub:'Extension prévue'}];
+clients.forEach((c, i) => c.tags = devices.some(d => d.cli === c.id) ? ['Supervision réseau'] : [[], ['Contrat maintenance'], ['Infogérance'], ['Supervision réseau'], ['Prospect']][i % 5]);
+let cliTab = 'mon', cliQ = '', cliPage = 0, cliView = null, wiz = null;
+const PAGE = 25, IPRE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function cliList() {
+  const q = norm(cliQ.trim()), base = cliTab === 'mon' ? MON() : cliTab === 'none' ? clients.filter(c => !devices.some(d => d.cli === c.id)) : clients;
+  const list = q ? base.filter(c => norm(c.name + ' ' + c.ref).includes(q)) : base, pages = Math.max(1, Math.ceil(list.length / PAGE));
+  cliPage = Math.min(cliPage, pages - 1); const rows = list.slice(cliPage * PAGE, cliPage * PAGE + PAGE), open = incidents().filter(i => i.st !== 'clos');
+  const tab = (id, n, c) => `<button data-ctab="${id}" class="${cliTab === id ? 'on' : ''}" aria-pressed="${cliTab === id}">${n} · ${c.toLocaleString('fr-FR')}</button>`;
+  return `<div class="head"><div><h1>Clients</h1><p class="sub">Fiches importées d'Odoo (${clients.length.toLocaleString('fr-FR')}) · ${MON().length} supervisés. Choisissez un client pour le connecter, ou créez-en un.</p></div><button class="btn p" data-cnew>Nouveau client</button></div>
+  <div class="bar"><div class="seg" role="group" aria-label="Filtre">${tab('mon','Supervisés',MON().length)}${tab('none','Sans équipement',clients.length - MON().length)}${tab('all','Tous',clients.length)}</div><input type="search" id="cq" placeholder="Nom ou référence…" value="${esc(cliQ)}" aria-label="Rechercher un client"></div>
+  <section class="panel">${rows.length ? `<table class="stack"><thead><tr><th>Client</th><th>Référence</th><th>Étiquettes Odoo</th><th class="num">Équipements</th><th class="num">Incidents</th><th>État</th><th></th></tr></thead><tbody>${rows.map(c => { const nd = devices.filter(d => d.cli === c.id).length, ni = open.filter(i => i.last.cli === c.id).length;
+    return `<tr class="click" data-copen="${c.id}"><td data-l="Client"><b style="font-weight:500">${esc(c.name)}</b></td><td data-l="Référence" class="mono">${c.ref}</td><td data-l="Étiquettes">${c.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ') || '<span class="note">—</span>'}</td><td data-l="Équipements" class="num">${nd || '—'}</td><td data-l="Incidents" class="num">${ni || '—'}</td><td data-l="État">${nd ? '<span class="tag ok">Supervisé</span>' : '<span class="tag">Non connecté</span>'}</td><td><button class="btn" data-copen="${c.id}">${nd ? 'Ouvrir' : 'Connecter'}</button></td></tr>`; }).join('')}</tbody></table>
+  <div class="pager"><span class="note">${(cliPage * PAGE + 1).toLocaleString('fr-FR')}–${Math.min(list.length, cliPage * PAGE + PAGE).toLocaleString('fr-FR')} sur ${list.length.toLocaleString('fr-FR')}</span><span><button class="btn" data-cpg="-1" ${cliPage ? '' : 'disabled'}>Précédent</button> <button class="btn" data-cpg="1" ${cliPage < pages - 1 ? '' : 'disabled'}>Suivant</button></span></div>` : `<p class="empty">Aucun client ne correspond.${q ? ' <button class="btn" data-cnew="' + esc(cliQ.trim()) + '">Créer « ' + esc(cliQ) + ' »</button>' : ''}</p>`}</section>`;
+}
+const STEPS = ['Client', 'Marque', 'Connexion', 'Vérification'];
+function wizView() { const w = wiz, c = clients.find(x => x.id === w.cli);
+  const stepper = `<ol class="steps">${STEPS.map((s, i) => `<li class="${i + 1 < w.step ? 'done' : i + 1 === w.step ? 'cur' : ''}"><i>${i + 1 < w.step ? '✓' : i + 1}</i>${s}</li>`).join('')}</ol>`;
+  let body = '';
+  if (w.step === 1) body = `<h2>Nouveau client</h2><div class="form"><label>Nom de la société<input type="text" data-w="name" value="${esc(w.name)}" placeholder="Ex. Client Démo 1241"></label><label>Référence<input type="text" value="C-${String(clients.length + 1).padStart(4, '0')}" disabled></label></div>
+    <label class="sw" style="margin-top:14px"><input type="checkbox" data-w="odoo" ${w.odoo ? 'checked' : ''}>Créer aussi la fiche dans Odoo, avec l'étiquette « Supervision réseau »</label>
+    ${w.err ? `<p class="note" style="color:var(--crit)">${esc(w.err)}</p>` : ''}<div class="wnav"><button class="btn" data-wcancel>Annuler</button><button class="btn p" data-wnext>Continuer</button></div>`;
+  if (w.step === 2) body = `<h2>Quelle marque d'équipements ?</h2><p class="sub">Chaque marque est une extension. Le logo officiel est fourni par l'extension.</p><div class="brands">${BRANDS.map(b => `<button class="brand-t ${w.brand === b.id ? 'sel' : ''}" data-brand="${b.id}" ${b.ok ? '' : 'disabled'}>${xLogo(b.id, b.name)}<span class="bm">${esc(b.name)}</span><span class="note">${esc(b.sub)}</span></button>`).join('')}</div>
+    <p class="note">Une autre marque ? <a href="#extensions">Installer une extension</a>.</p><div class="wnav"><button class="btn" data-wback>Retour</button><button class="btn p" data-wnext ${w.brand ? '' : 'disabled'}>Continuer</button></div>`;
+  if (w.step === 3) { const cols = COLLECTORS.filter(x => x.cli === w.cli);
+    body = `<h2>Connexion Zyxel</h2><div class="seg" role="group" aria-label="Type de parc" style="margin-bottom:16px"><button data-mode="nebula" class="${w.mode === 'nebula' ? 'on' : ''}">Géré par Nebula</button><button data-mode="local" class="${w.mode === 'local' ? 'on' : ''}">Équipements autonomes</button></div>
+    ${w.mode === 'nebula' ? `<div class="form"><label>Organisation Nebula<select data-w="org"><option value="">Choisir…</option>${ORGS.map(o => `<option ${w.org === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label><label>Collecteur du site<select data-w="col"><option value="new">Installer un nouveau collecteur</option>${cols.map(x => `<option value="${x.id}" ${w.col === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label></div>
+      <p class="note">La clé API Nebula est celle de l'extension Zyxel (Paramètres > Extensions). Nebula n'envoie pas son syslog dans un tunnel VPN : le collecteur du site est obligatoire.</p>`
+    : `<div class="form"><label>Nom du site<input type="text" data-w="site" value="${esc(w.site)}"></label><label>IP LAN du pare-feu<input type="text" data-w="ip" value="${esc(w.ip)}" placeholder="192.168.1.1" inputmode="decimal"></label><label>Collecteur du site<select data-w="col"><option value="new">Installer un nouveau collecteur</option>${cols.map(x => `<option value="${x.id}" ${w.col === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label><label>Port syslog<input type="number" value="514" disabled></label></div>
+      <label class="sw" style="margin-top:14px"><input type="checkbox" data-w="ssh" ${w.ssh ? 'checked' : ''}>Lire l'inventaire en SSH (compte en lecture seule, facultatif)</label>
+      ${w.ssh ? `<div class="form" style="margin-top:10px"><label>Utilisateur SSH<input type="text" data-w="sshUser" value="${esc(w.sshUser)}" placeholder="syslens-ro"></label><label>Mot de passe ou clé<input type="password" autocomplete="off"></label></div>` : ''}
+      <p class="note">Sur le pare-feu : Log &amp; Report > Log Settings > Remote Server, format CEF/Syslog, vers l'IP du collecteur.</p>`}
+    ${w.col === 'new' ? `<div class="prev"><b style="font-weight:500">Nouveau collecteur</b><p class="note" style="margin-top:4px">À lancer sur le mini-PC du site. Le jeton est valable 24 h et n'enrôle que ce client.</p><div class="raw">sudo syslens-collector enroll --server syslens.exemple.local --token ${w.token}</div></div>` : ''}
+    ${w.err ? `<p class="note" style="color:var(--crit)">${esc(w.err)}</p>` : ''}<div class="wnav"><button class="btn" data-wback>Retour</button><button class="btn p" data-wnext>Tester la connexion</button></div>`; }
+  if (w.step === 4) body = `<h2>${w.done ? 'Connecté' : 'Connexion en cours…'}</h2><ul class="prog" id="wprog">${progHTML()}</ul>
+    ${w.done ? `<p class="ai" style="margin-top:14px"><b>${esc(c.name)}</b> est supervisé : ${devices.filter(d => d.cli === w.cli).length} équipement(s) rattaché(s), les logs arrivent.</p><div class="wnav"><button class="btn" data-wmore>Ajouter une autre marque ou un autre site</button><button class="btn p" data-copen="${w.cli}" data-wend>Voir le client</button></div>` : ''}`;
+  return `<p style="margin:0 0 6px"><button class="link" data-wcancel>← Clients</button></p><h1>${c ? esc(c.name) : 'Nouveau client'}</h1><p class="sub">${c ? c.ref + ' · fiche Odoo' : 'Création'} · ajout d'une connexion</p>${stepper}<section class="panel wiz">${body}</section>`;
+}
+function progHTML() { return wiz.prog.map(p => `<li class="p-${p.st}"><i>${p.st === 'ok' ? '✓' : p.st === 'run' ? '' : '·'}</i><span>${esc(p.t)}</span></li>`).join(''); }
+function wizRun() { const w = wiz, c = clients.find(x => x.id === w.cli), col = w.col === 'new' ? 'Collecteur enrôlé, certificat émis pour ' + c.ref : 'Collecteur existant joignable';
+  w.prog = (w.mode === 'nebula' ? ['Clé API Nebula valide', `Organisation « ${w.org} » trouvée : 2 sites`, col, 'Syslog Nebula configuré vers le collecteur', 'Inventaire : 5 équipements (1 pare-feu, 2 switchs, 2 bornes)', 'Premier log reçu (CEF)']
+    : [col, `Pare-feu joignable en ${w.ip}`, ...(w.ssh ? ['Inventaire SSH : USG FLEX 200, ZLD 5.39'] : []), 'En attente du premier log…', 'Premier log reçu (CEF) : USG FLEX 200']).map(t => ({t, st:'wait'}));
+  let k = 0; const tick = () => { if (!wiz || wiz !== w) return; if (k > 0) w.prog[k - 1].st = 'ok'; if (k < w.prog.length) { w.prog[k].st = 'run'; k++; if ($('#wprog')) $('#wprog').innerHTML = progHTML(); setTimeout(tick, reduce() ? 120 : 650); } else { wizFinish(); render(); } };
+  tick(); }
+function wizFinish() { const w = wiz; if (w.done) return; w.done = true; const n = devices.filter(d => d.cli === w.cli).length, tag = w.cli.slice(4), now = Date.now();
+  const add = (fam, model, site, crit) => { const id = {'Pare-feu':'fw','Switch':'sw','Borne':'ap'}[fam] + '-' + tag + '-' + String(devices.filter(d => d.cli === w.cli).length + 1).padStart(2, '0');
+    devices.push({id, cli: w.cli, fam, model, fw: w.mode === 'nebula' ? 'Nebula' : 'ZLD 5.39', src: w.mode === 'nebula' ? 'Nebula (syslog + API)' : 'Syslog CEF', crit, last: 0, site, fresh: true});
+    for (let i = 0; i < 6; i++) mk(id, fam === 'Borne' ? 'assoc' : fam === 'Switch' ? 'stp' : 'traffic', now - i * 40e3, {vsev: 6});
+    LIVE.push([id, fam === 'Borne' ? 'assoc' : fam === 'Switch' ? 'stp' : 'traffic', 6]); };
+  if (w.mode === 'nebula') { add('Pare-feu','USG FLEX 200HP','Siège','tete'); add('Switch','GS1915-24EP','Siège','coeur'); add('Borne','NWA130BE','Siège',''); add('Switch','GS1915-8EP','Entrepôt',''); add('Borne','NWA50AX PRO','Entrepôt',''); }
+  else { add('Pare-feu','USG FLEX 200',w.site,'tete'); PENDING.push({cli: w.cli, fam:'Switch', model:'GS1920-24HPv2', site: w.site, mac:'BC:CF:4F:12:9A:0E'}); }
+  if (w.col === 'new') COLLECTORS.push({id:'col-' + tag + '-' + (n + 1), cli: w.cli, name:'Collecteur ' + clients.find(x => x.id === w.cli).ref});
+  const c = clients.find(x => x.id === w.cli); if (!c.tags.includes('Supervision réseau')) c.tags.push('Supervision réseau'); events.sort((a, b) => a.t - b.t); srcCache.clear(); }
+function cliDetail(id) { const c = clients.find(x => x.id === id), ds = devices.filter(d => d.cli === id), open = incidents().filter(i => i.st !== 'clos' && i.last.cli === id), pend = PENDING.filter(p => p.cli === id);
+  const ev24 = events.filter(e => e.cli === id && e.t > Date.now() - 24 * H).length, sites = [...new Set(ds.map(d => d.site || 'Site principal'))];
+  return `<p style="margin:0 0 6px"><button class="link" data-cback>← Clients</button></p><div class="head"><div><h1>${esc(c.name)}</h1><p class="sub">${c.ref} · ${c.tags.map(esc).join(', ') || 'sans étiquette'} · fiche Odoo n° ${id.slice(4)}</p></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-cscope="${id}">Définir comme périmètre</button><button class="btn p" data-cconnect="${id}">Ajouter une connexion</button></div></div>
+  <div class="kpis"><div class="card"><span class="note">Équipements</span><b class="big">${ds.length}</b></div><div class="card"><span class="note">Sites</span><b class="big">${sites.length}</b></div><div class="card"><span class="note">Incidents ouverts</span><b class="big" style="color:${open.some(i => i.lv === 'critique') ? 'var(--crit)' : 'inherit'}">${open.length}</b></div><div class="card"><span class="note">Logs 24 h</span><b class="big">${ev24.toLocaleString('fr-FR')}</b></div></div>
+  ${pend.length ? `<section class="panel" style="margin-top:14px;border-color:var(--grav)"><h2>Nouveaux équipements détectés · à confirmer</h2><table><tbody>${pend.map((p, i) => `<tr><td>${p.fam}</td><td>${esc(p.model)}</td><td class="mono">${p.mac}</td><td>${esc(p.site)}</td><td class="r"><button class="btn p" data-pok="${i}">Rattacher</button> <button class="btn" data-pno="${i}">Ignorer</button></td></tr>`).join('')}</tbody></table></section>` : ''}
+  <div class="grid2" style="margin-top:14px"><section class="panel"><h2>Équipements</h2>${ds.length ? sites.map(s => `<h3 class="note" style="margin:10px 0 4px">${esc(s)}</h3><table class="stack"><tbody>${ds.filter(d => (d.site || 'Site principal') === s).map((d, i) => `<tr class="${d.fresh ? 'newrow' : ''}" style="animation-delay:${i * 120}ms"><td data-l="Équipement" class="mono">${d.id}</td><td data-l="Famille">${d.fam}</td><td data-l="Modèle">${esc(d.model)}</td><td data-l="Source">${d.src}</td><td data-l="Dernier log" class="r">${d.last > SILENCE[d.fam] ? `<span style="color:var(--grav)">${d.last} min</span>` : 'à l’instant'}</td></tr>`).join('')}</tbody></table>`).join('') : '<p class="empty">Aucun équipement. <button class="btn p" data-cconnect="' + id + '">Connecter</button></p>'}</section>
+  <section class="panel"><h2>Incidents ouverts</h2>${incRows(open)}</section></div>`; }
+V.clients = () => wiz ? wizView() : cliView ? cliDetail(cliView) : cliList();
+function wizStart(cli, isNew, name = '') { wiz = {step: isNew ? 1 : 2, cli, isNew, name, odoo: true, brand: 'zyxel', mode: 'nebula', org: '', col: 'new', site: 'Site principal', ip: '', ssh: false, sshUser: '', token: 'SLK-' + Math.random().toString(36).slice(2, 8).toUpperCase(), prog: [], done: false, err: ''};
+  if (!isNew) { const cols = COLLECTORS.filter(x => x.cli === cli); if (cols.length) wiz.col = cols[0].id; } cliView = null; if (route() !== 'clients') location.hash = 'clients'; else render(); }
+document.addEventListener('click', e => {
+  const t = e.target, g = s => t.closest(s);
+  if (g('nav a[href="#clients"]') && route() === 'clients') { wiz = null; cliView = null; render(); return; }
+  if (g('[data-ctab]')) { cliTab = g('[data-ctab]').dataset.ctab; cliPage = 0; render(); return; }
+  if (g('[data-cpg]')) { cliPage += +g('[data-cpg]').dataset.cpg; render(); return; }
+  if (g('[data-cnew]')) { wizStart(null, true, g('[data-cnew]').dataset.cnew || ''); return; }
+  if (g('[data-wend]') || (g('[data-copen]') && !wiz)) { const id = g('[data-copen]').dataset.copen; wiz = null; if (devices.some(d => d.cli === id)) { cliView = id; render(); devices.forEach(d => { if (d.cli === id) setTimeout(() => { d.fresh = false; }, 2000); }); } else wizStart(id, false); return; }
+  if (g('[data-cback]')) { cliView = null; render(); return; }
+  if (g('[data-cscope]')) { pickSet(g('[data-cscope]').dataset.cscope); return; }
+  if (g('[data-cconnect]')) { wizStart(g('[data-cconnect]').dataset.cconnect, false); return; }
+  if (g('[data-pok]') || g('[data-pno]')) { const b = g('[data-pok]') || g('[data-pno]'), i = +(b.dataset.pok ?? b.dataset.pno), own = PENDING.filter(p => p.cli === cliView), p = own[i];
+    if (b.dataset.pok !== undefined) { devices.push({id: 'sw-' + p.cli.slice(4) + '-' + String(devices.filter(d => d.cli === p.cli).length + 1).padStart(2, '0'), cli: p.cli, fam: p.fam, model: p.model, fw: '4.80', src: 'Syslog', crit: '', last: 0, site: p.site, fresh: true}); }
+    PENDING.splice(PENDING.indexOf(p), 1); render(); return; }
+  if (!wiz) return;
+  if (g('[data-wcancel]')) { wiz = null; render(); return; }
+  if (g('[data-wback]')) { wiz.step = Math.max(wiz.isNew ? 1 : 2, wiz.step - 1); wiz.err = ''; render(); return; }
+  if (g('[data-wmore]')) { const cli = wiz.cli; wizStart(cli, false); return; }
+  if (g('[data-brand]')) { wiz.brand = g('[data-brand]').dataset.brand; render(); return; }
+  if (g('[data-mode]')) { wiz.mode = g('[data-mode]').dataset.mode; wiz.err = ''; render(); return; }
+  if (g('[data-wnext]')) { const w = wiz; w.err = '';
+    if (w.step === 1) { if (w.name.trim().length < 2) { w.err = 'Indiquez le nom de la société.'; return render(); }
+      const id = 'cli-' + (clients.length + 1); clients.push({id, name: w.name.trim(), hours: [8, 18], ref: 'C-' + String(clients.length + 1).padStart(4, '0'), tags: w.odoo ? ['Supervision réseau'] : []}); w.cli = id; }
+    if (w.step === 3) { if (w.mode === 'nebula' && !w.org) { w.err = 'Choisissez l’organisation Nebula du client.'; return render(); }
+      if (w.mode === 'local' && !IPRE.test(w.ip.trim())) { w.err = 'Adresse IP invalide (ex. 192.168.1.1).'; return render(); }
+      w.step = 4; render(); wizRun(); return; }
+    w.step++; render(); }
+});
+document.addEventListener('input', e => { const t = e.target;
+  if (t.id === 'cq') { cliQ = t.value; cliPage = 0; const pos = t.selectionStart; render(); const n = $('#cq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
+  if (wiz && t.dataset.w && t.type !== 'checkbox') wiz[t.dataset.w] = t.value; });
+document.addEventListener('change', e => { const t = e.target; if (!wiz || !t.dataset.w) return;
+  if (t.type === 'checkbox') { wiz[t.dataset.w] = t.checked; if (t.dataset.w === 'ssh') render(); } else { wiz[t.dataset.w] = t.value; if (t.dataset.w === 'col') render(); } });
+const LIVE = [['ap-a-01','assoc',6],['fw-b-01','traffic',6],['fw-c-01','dhcp',6],['ap-c-01','assoc',6],['sw-d-01','stp',5],['fw-a-01','admin-ko',4],['fw-d-01','traffic',6]];
+let tick = 0;
+setInterval(() => { if (paused || LIVEMODE) return; tick++; const [d,k,v] = pick(LIVE); mk(d, k, Date.now(), {vsev: v, src: k === 'admin-ko' ? '203.0.113.47' : undefined, user: k === 'admin-ko' ? 'admin' : ''});
+  const r = route(), busy = $('#drawer').classList.contains('open') || $('#modal').classList.contains('on') || document.activeElement.matches('input,select');
+  if (r === 'logs' && !openRow) $('#logbox').innerHTML = logTable();
+  else if ((r === 'overview' || r === 'incidents') && tick % 10 === 0 && !busy) render(); else nav(); }, 1500);
+
+// --- mises à jour (servies par le récepteur : releases GitHub)
+let UPD = null, updMsg = '';
+const fdt = t => t ? new Date(t).toLocaleString('fr-FR', {dateStyle: 'short', timeStyle: 'short'}) : '—';
+function updPanel() {
+  if (!LIVEMODE) return `<h2>Mises à jour</h2><p class="sub" style="margin:0">Le serveur SysLens vérifie les releases GitHub toutes les heures et s'installe tout seul. Disponible quand la console est servie par SysLens.</p>`;
+  if (!UPD) return `<h2>Mises à jour</h2><p class="sub" style="margin:0">Chargement…</p>`;
+  const st = {idle: ['À jour', 'ok'], available: ['Nouvelle version', 'warn'], checking: ['Vérification…', ''], installing: ['Installation…', 'warn'], error: ['Erreur', 'warn']}[UPD.state] || ['—', ''];
+  return `<h2 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Mises à jour <span class="tag ${st[1]}">${st[0]}</span></h2>
+  <dl class="kv"><dt>Version installée</dt><dd class="mono">${esc(UPD.version)}</dd><dt>Dernière release</dt><dd class="mono">${esc(UPD.latest || '—')}</dd><dt>Dépôt</dt><dd class="mono">github.com/${esc(UPD.repo)}</dd><dt>Mise à jour auto</dt><dd>${UPD.auto ? 'Activée · vérification toutes les heures' : 'Désactivée (SYSLENS_AUTOUPDATE=0)'}</dd><dt>Dernière vérification</dt><dd>${fdt(UPD.checkedAt)}</dd></dl>
+  ${UPD.state === 'error' ? `<p class="note" style="color:var(--crit)">${esc(UPD.msg)}</p>` : ''}${updMsg ? `<p class="note">${esc(updMsg)}</p>` : ''}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" data-upd="check">Vérifier maintenant</button>${UPD.state === 'available' ? `<button class="btn p" data-upd="install">Installer ${esc(UPD.latest)}</button>` : ''}</div>`; }
+async function updLoad() { try { UPD = await (await fetch('/api/version', {cache: 'no-store'})).json(); } catch (e) {} if ($('#updPanel')) $('#updPanel').innerHTML = updPanel(); }
+document.addEventListener('click', async e => { const b = e.target.closest('[data-upd]'); if (!b) return; b.disabled = true; updMsg = b.dataset.upd === 'install' ? 'Installation en cours, la console se rechargera toute seule.' : '';
+  try { const r = await fetch('/api/update', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({install: b.dataset.upd === 'install'})}); UPD = await r.json(); } catch (err) { updMsg = 'Récepteur injoignable.'; }
+  if ($('#updPanel')) $('#updPanel').innerHTML = updPanel(); });
+let srvVersion = null;
+function versionSeen(v) { if (!v) return; if (!srvVersion) { srvVersion = v; return; } if (v === srvVersion) return;
+  srvVersion = v; const busy = $('#drawer').classList.contains('open') || $('#modal').classList.contains('on') || document.activeElement.matches('input,select,textarea');
+  if (!busy) location.reload(); else { const n = document.createElement('div'); n.className = 'updbar'; n.innerHTML = `SysLens a été mis à jour en <b>${esc(v)}</b>. <button class="btn" onclick="location.reload()">Recharger</button>`; document.body.append(n); } }
+// --- mode réel : branché sur le récepteur (servi par lui sur /console)
+let liveSince = 0, liveOk = null, liveN = 0;
+const MODELS = {'USG20W-VPN':'USG FLEX 50W (USG20W-VPN)','USG20-VPN':'USG FLEX 50 (USG20-VPN)'};
+const famOf = p => /^(GS|XGS|XS|MS)/i.test(p) ? 'Switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p) ? 'Borne' : 'Pare-feu';
+function liveK(x) { const f = x.f || {}, txt = (x.msg || '') + ' ' + (x.name || '');
+  if (/interface statistics/i.test(x.cat || '')) return 'if-stats';
+  if (/system monitoring/i.test(x.cat || '')) return /cpu:(9\d|100)\b|memory:(9\d|100)\b/i.test(txt) ? 'cpu' : 'sysmon';
+  if (/default rule/i.test(txt) && /drop|deny|block/i.test(txt + ' ' + (f.act || ''))) return 'deny-default';
+  if (x.k && CAT[x.k]) return x.k;
+  const k = 'nr:' + (x.cat || x.name || 'Autre');
+  if (!CAT[k]) CAT[k] = {k, fam:'Toutes', cat:x.cat || '—', sig:(x.name && x.name !== x.cat ? x.name + ' · ' : '') + (x.cat || 'Log'), base:0, floor:0, st:'nonref', mean:"Type de log pas encore dans le référentiel : noté avec la gravité annoncée par Zyxel.", act:'À qualifier, puis ajouter au référentiel.', src:'Gravité constructeur (CEF)'};
+  return k; }
+function liveDev(x) { const id = x.host || x.from; let d = devices.find(v => v.id === id);
+  if (!d) { const fam = famOf(x.product || ''); d = {id, cli:'cli-test', fam, model:MODELS[x.product] || x.product || '?', fw:x.ver ? 'ZLD ' + x.ver : '—', src:x.fmt === 'CEF' ? 'Syslog CEF' : 'Syslog', crit:fam === 'Pare-feu' ? 'tete' : '', last:0, ip:x.from, lastT:x.t}; devices.push(d); }
+  d.lastT = Math.max(d.lastT || 0, x.t); return d; }
+function liveEv(x) { const d = liveDev(x), k = liveK(x), c = CAT[k], f = x.f || {};
+  events.push({id: ++evId, t: x.t, dev: d.id, cli: d.cli, fam: d.fam, model: d.model, k, cat: x.cat || c.cat, msg: x.msg || '', vsev: x.sev ?? 6, src: f.src || '', dst: f.dst || '', user: f.user || '', admin: !!c.admin, maint: false, raw: x.raw || ''}); }
+async function livePoll() { if (paused) return;
+  try { const j = await (await fetch('/api/events?since=' + liveSince, {cache:'no-store'})).json();
+    versionSeen(j.version);
+    for (const x of j.events) { liveEv(x); liveSince = Math.max(liveSince, x.id); }
+    if (j.events.length) { events.sort((a,b) => a.t - b.t); if (events.length > 20000) events.splice(0, events.length - 20000); srcCache.clear(); }
+    const now = Date.now(); devices.forEach(d => d.last = Math.max(0, Math.round((now - d.lastT) / 60e3)));
+    const first = liveOk !== true; liveOk = true; liveN++;
+    const r = route(), busy = $('#drawer').classList.contains('open') || $('#modal').classList.contains('on') || document.activeElement.matches('input,select');
+    if (r === 'logs' && !openRow) { if (j.events.length) $('#logbox').innerHTML = logTable(); nav(); }
+    else if (first || ((r === 'overview' || r === 'incidents' || r === 'devices') && j.events.length && liveN % 3 === 0 && !busy)) render(); else nav();
+  } catch (err) { liveOk = false; nav(); } }
+if (LIVEMODE) { updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; livePoll(); setInterval(livePoll, 3000); }
+render();
+}
+</script>
+</body>
+</html>

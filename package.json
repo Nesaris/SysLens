@@ -1,0 +1,11 @@
+{
+  "name": "syslens",
+  "version": "0.1.0",
+  "description": "Collecte et tri par gravité des logs réseau (Zyxel d'abord), console web et IA locale. Zéro dépendance.",
+  "license": "MIT",
+  "main": "syslens.js",
+  "scripts": { "start": "node syslens.js" },
+  "engines": { "node": ">=20" },
+  "syslens": { "repo": "Nesaris/syslens" },
+  "repository": { "type": "git", "url": "https://github.com/Nesaris/syslens.git" }
+}

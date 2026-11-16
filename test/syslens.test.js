@@ -70,7 +70,7 @@ test('reçoit du CEF Zyxel et note chaque log', async () => {
   assert.equal(stats.k, 'if-stats'); assert.equal(stats.level, 'benin', 'un relevé périodique « Down » n’est pas une panne');
   assert.equal(coupure.k, 'link-down'); assert.equal(coupure.level, 'grave'); assert.match(coupure.why, /pare-feu de tête/);
   assert.equal(stats.product, 'USG20W-VPN'); assert.ok(coupure.raw.startsWith('<137>'));
-  const dev = (await requete(s.web, '/api/events?since=0')).json.devices;
+  let dev = []; for (let i = 0; i < 30 && !dev.length; i++) { await attendre(100); dev = (await requete(s.web, '/api/events?since=0')).json.devices; }
   assert.equal(dev.length, 1); assert.equal(dev[0].count, 3);
 });
 
@@ -192,4 +192,36 @@ test('abonnement : connexion suivie par le serveur (Codex par la page, Claude Co
   await ia({ op: 'code', tool: 'claudecode', code: 'CODE-essai-123' });
   for (let i = 0; i < 40 && !(c.logged); i++) { await attendre(150); c = await ia({ op: 'cli', tool: 'claudecode' }); } assert.equal(c.logged, true);
   assert.match((await ia({ op: 'install', tool: 'inconnu' })).error, /Outil inconnu/);
+});
+
+test('grande échelle : plusieurs processus de réception, équipements derrière la même IP séparés, bénins non réécrits', async () => {
+  const s = await demarrer({ WORKERS: '2' }); await attendre(800);
+  const lignes = [];
+  for (let i = 0; i < 300; i++) lignes.push(cef('Access Control', 6, `src=203.0.113.${i % 200} dst=192.0.2.1 msg=Match default rule, DROP act=Drop cat=Security Policy Control`));
+  lignes.push('<187>Nov 16 15:00:00 XMG1915-10E: Port 3 link down');
+  await envoyer(s.syslog, lignes);
+  let st; await attendre(5500); for (let i = 0; i < 40; i++) { await attendre(150); st = (await requete(s.web, '/api/events?since=0')).json; if (st.devices.length === 2 && st.devices.reduce((a, d) => a + d.count, 0) === 301) break; }
+  assert.equal(st.stats.workers, 2);
+  assert.equal(st.devices.length, 2, 'le routeur et le switch derrière la même IP sont deux équipements');
+  assert.equal(st.devices.reduce((a, d) => a + d.count, 0), 301);
+  const sw = st.devices.find(d => d.host === 'XMG1915-10E'); assert.equal(sw.product, 'XMG1915-10E');
+  const inc = (await requete(s.web, '/api/incidents')).json; assert.equal(inc.total, 1); assert.equal(inc.incidents[0].k, 'link-down'); assert.equal(inc.incidents[0].level, 'grave');
+  const fichiers = fs.readdirSync(path.join(s.dossier, 'logs'));
+  const zl = require('zlib'), bruts = fichiers.filter(f => /^raw-.*\.w\d+\.log\.gz$/.test(f)).reduce((a, f) => a + zl.gunzipSync(fs.readFileSync(path.join(s.dossier, 'logs', f)), { finishFlush: zl.constants.Z_SYNC_FLUSH }).toString().split('\n').filter(Boolean).length, 0);
+  assert.equal(bruts, 301, 'tout le brut est archivé');
+  const utiles = fs.readFileSync(path.join(s.dossier, 'logs', fichiers.find(f => f.startsWith('events-'))), 'utf8').split('\n').filter(Boolean);
+  assert.equal(utiles.length, 1, 'seuls les événements utiles sont réécrits');
+});
+
+test('archives : jours passés compressés, au-delà de la rétention supprimés', async () => {
+  const dossier = installer(), logs = path.join(dossier, 'logs'); fs.mkdirSync(logs);
+  const j = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10), vieux = Date.now() / 1000 - 86400;
+  fs.writeFileSync(path.join(logs, `raw-${j(3)}.log`), 'ligne\n'.repeat(100)); fs.writeFileSync(path.join(logs, `raw-${j(120)}.log`), 'x\n');
+  for (const f of fs.readdirSync(logs)) fs.utimesSync(path.join(logs, f), vieux, vieux);
+  await demarrer({ RETENTION_DAYS: '90' }, dossier);
+  for (let i = 0; i < 60 && !fs.existsSync(path.join(logs, `raw-${j(3)}.log.gz`)); i++) await attendre(200);
+  const zlib = require('zlib');
+  assert.equal(zlib.gunzipSync(fs.readFileSync(path.join(logs, `raw-${j(3)}.log.gz`))).toString(), 'ligne\n'.repeat(100));
+  assert.ok(!fs.existsSync(path.join(logs, `raw-${j(3)}.log`)));
+  assert.ok(!fs.existsSync(path.join(logs, `raw-${j(120)}.log`)), 'au-delà de 90 jours : supprimé');
 });

@@ -1154,7 +1154,7 @@ function versionSeen(v) { if (!v) return; if (!srvVersion) { srvVersion = v; ret
 // --- mode réel : branché sur le récepteur (servi par lui sur /console)
 let liveSince = 0, liveOk = null, liveN = 0;
 const MODELS = {'USG20W-VPN':'USG FLEX 50W (USG20W-VPN)','USG20-VPN':'USG FLEX 50 (USG20-VPN)'};
-const famOf = p => /^(GS|XGS|XS|MS)/i.test(p) ? 'Switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p) ? 'Borne' : 'Pare-feu';
+const famOf = p => /^(GS|XGS|XMG|XS|MS|MG)/i.test(p) ? 'Switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p) ? 'Borne' : 'Pare-feu';
 function liveK(x) { const f = x.f || {}, txt = (x.msg || '') + ' ' + (x.name || '');
   if (/interface statistics/i.test(x.cat || '')) return 'if-stats';
   if (/system monitoring/i.test(x.cat || '')) return /cpu:(9\d|100)\b|memory:(9\d|100)\b/i.test(txt) ? 'cpu' : 'sysmon';

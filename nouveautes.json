@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.4.0",
+    "date": "2026-11-16",
+    "points": [
+      "Grande échelle : jusqu'à 30 000 logs par seconde avec un seul processus (mesuré), assez pour plus de 10 000 pare-feu. Des processus de réception supplémentaires s'ajoutent avec WORKERS.",
+      "Le brut est compressé au fil de l'eau (environ 40 fois plus petit), les jours passés sont compressés et supprimés au bout de 90 jours (RETENTION_DAYS).",
+      "Incidents regroupés côté serveur, et les équipements derrière une même IP (routeur et switch en NAT) sont séparés.",
+      "Les switchs Zyxel en syslog simple (XMG, XGS, GS) sont reconnus."
+    ]
+  },
+  {
     "version": "0.3.6",
     "date": "2026-11-16",
     "points": [

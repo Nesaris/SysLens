@@ -47,6 +47,9 @@ Le port 514 est privilégié sur Linux : lancer avec les droits nécessaires, ou
 | `BIND` | Adresse d'écoute du syslog | `0.0.0.0` |
 | `WEB` | Port de la console (127.0.0.1 seulement) | `8514` |
 | `ALLOW` | Sources acceptées, en CIDR séparés par des virgules ; le reste est ignoré et compté | toutes |
+| `RETENTION_DAYS` | Jours de logs gardés ; les jours passés sont compressés, les plus vieux supprimés | `90` |
+| `WORKERS` | Processus de réception en plus, pour les très gros parcs | `0` |
+| `RAW_GZIP` | `0` pour écrire le brut sans compression | compressé |
 | `SYSLENS_AUTOUPDATE` | `0` pour couper la mise à jour automatique | activée |
 | `SYSLENS_REPO` | Dépôt dont les releases sont suivies | `Nesaris/SysLens` |
 
@@ -67,11 +70,20 @@ Réglez aussi l'heure (NTP et fuseau) : SysLens horodate chaque log à la récep
 
 Tout reste sur la machine :
 
-- `logs/raw-AAAA-MM-JJ.log` : les lignes reçues, telles quelles ;
-- `logs/events-AAAA-MM-JJ.jsonl` : les mêmes, décodées et notées ;
+- `logs/raw-AAAA-MM-JJ.log.gz` : toutes les lignes reçues, telles quelles, compressées au fil de l'eau (`zcat` pour les lire) ;
+- `logs/events-AAAA-MM-JJ.jsonl` : les événements utiles (référentiel, ou gravité moyen et plus), décodés, notés, avec leur ligne brute ;
 - `logs/types.json` : les types de logs vus, pour enrichir le référentiel.
 
 Ces fichiers contiennent des adresses IP et des identifiants des clients : le `.gitignore` les tient hors du dépôt, et rien n'est envoyé ailleurs. Les logos des extensions sont récupérés une fois sur le site officiel de chaque marque et gardés dans `extensions/` ; ils ne sont pas redistribués avec le code.
+
+## Capacité
+
+Mesuré sur une machine à 2 cœurs (qui envoyait aussi les logs) : **30 000 logs/s sans perte avec un seul processus**, en UDP, brut compressé compris. Un pare-feu Zyxel exposé à Internet envoie environ 1,3 log/s : un processus suit donc plus de 10 000 pare-feu. Au-delà, `WORKERS` ajoute des processus de réception, un par cœur libre.
+
+- Seuls les événements utiles remontent au processus principal (incidents, console, IA) ; les bénins sont comptés, archivés et échantillonnés pour le flux de la console.
+- Les incidents sont regroupés côté serveur (`/api/incidents`), par type, équipement et source.
+- Les équipements derrière une même IP (routeur et switch d'un site en NAT) sont séparés par leur nom d'hôte.
+- Disque : sur un vrai pare-feu, le brut se compresse environ 40 fois. Comptez de l'ordre de 7 Go par jour pour 10 000 pare-feu bavards, beaucoup moins avec le *Traffic Log* coupé.
 
 ## Mises à jour
 

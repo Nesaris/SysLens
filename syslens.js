@@ -2,7 +2,7 @@
 // SysLens — serveur (récepteur syslog + console), Node.js sans dépendance. Licence MIT.
 // Reçoit le syslog Zyxel (CEF/Syslog ou Syslog), le note par gravité, garde tout sur disque.
 'use strict';
-const dgram = require('dgram'), net = require('net'), http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto'), cp = require('child_process');
+const cluster = require('cluster'), zlib = require('zlib'), dgram = require('dgram'), net = require('net'), http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto'), cp = require('child_process');
 const SELFTEST = process.argv.includes('--selftest');
 if (process.env.SYSLENS_WAIT_PID) { const pid = +process.env.SYSLENS_WAIT_PID, t0 = Date.now(), slot = new Int32Array(new SharedArrayBuffer(4));
   while (Date.now() - t0 < 15000) { try { process.kill(pid, 0); } catch (e) { break; } Atomics.wait(slot, 0, 0, 100); } delete process.env.SYSLENS_WAIT_PID; }
@@ -36,7 +36,7 @@ function parse(raw, from) {
   const m = raw.match(/^<(\d{1,3})>([\s\S]*)$/), pri = m ? +m[1] : 13; let rest = m ? m[2] : raw;
   const ev = { t: Date.now(), from, raw, pri, sev: pri & 7, host: '', fmt: 'syslog', product: '', ver: '', cat: '', name: '', msg: '', f: {} };
   const h = rest.match(/^([A-Z][a-z]{2}\s+\d{1,2}\s\d\d:\d\d:\d\d)(?:\s\d{4})?\s(\S+)\s([\s\S]*)$/);
-  if (h) { ev.host = h[2]; rest = h[3]; }
+  if (h) { ev.host = h[2].replace(/:$/, ''); rest = h[3]; }
   const ci = rest.indexOf('CEF:');
   if (ci >= 0) {
     const c = rest.slice(ci + 4), parts = []; let cur = '', esc = false;
@@ -48,49 +48,122 @@ function parse(raw, from) {
     const re = /(\w+)="([^"]*)"/g; let x; while ((x = re.exec(rest))) ev.f[x[1]] = x[2];
     if (Object.keys(ev.f).length) ev.fmt = 'ZLD';
   }
+  if (!ev.product && /^(XMG|XGS|XS|GS|MG)\d/i.test(ev.host)) ev.product = ev.host;
   ev.cat = ev.f.cat || ev.name || ''; ev.msg = ev.f.msg || ev.name || rest.trim();
   ev.src = ev.f.src || ''; ev.dst = ev.f.dst || ''; ev.user = ev.f.suser || ev.f.user || '';
   return ev;
 }
 const win = new Map();
-function score(ev) {
+// ctx = false : note de base seule (processus de réception) ; ctx = true : avec répétitions, horaires et force brute (processus principal).
+function score(ev, ctx = true) {
   const txt = ev.msg + ' ' + ev.name + ' ' + (ev.f.note || '') + ' ' + (ev.f.ZYnote || '');
   const r = REF.find(r => (!r.cat || r.cat.test(ev.cat)) && (!r.re || r.re.test(txt))), parts = [];
-  ev.k = r ? r.k : 'non-reference';
+  ev.k = r ? r.k : 'non-reference'; ev.ref = !!(r && !r.telemetry);
   let s = r ? r.base : BASE[ev.sev]; parts.push((r ? 'référentiel ' + r.k : 'gravité Zyxel ' + SEV[ev.sev]) + ' ' + s);
   if (r && !r.telemetry && /USG|ATP|FLEX|ZyWALL|VPN/i.test(ev.product)) { s += 10; parts.push('pare-feu de tête +10'); }
   if (r && r.admin && isPublic(ev.src)) { s += 15; parts.push('IP publique +15'); }
-  const key = ev.k + '|' + ev.from + '|' + ev.src, now = ev.t, arr = (win.get(key) || []).filter(t => now - t < 300e3); arr.push(now); win.set(key, arr);
-  const n = arr.length, rep = n >= 200 ? 20 : n >= 50 ? 15 : n >= 10 ? 10 : n >= 3 ? 5 : 0; if (rep && r && !r.telemetry) { s += rep; parts.push(n + ' en 5 min +' + rep); }
-  const hr = new Date(now).getHours(); if (r && r.admin && (hr < 8 || hr >= 19)) { s += 10; parts.push('hors horaires +10'); }
-  if (ev.k === 'admin-ko' && n >= 10) { s = Math.max(s, 60); parts.push('règle force brute'); }
+  if (ctx) {
+    const key = ev.k + '|' + ev.dev + '|' + ev.src, now = ev.t; let arr = win.get(key); if (!arr) win.set(key, arr = []);
+    while (arr.length && now - arr[0] >= 300e3) arr.shift(); arr.push(now); if (arr.length > 250) arr.splice(0, arr.length - 250);
+    const n = arr.length, rep = n >= 200 ? 20 : n >= 50 ? 15 : n >= 10 ? 10 : n >= 3 ? 5 : 0; if (rep && ev.ref) { s += rep; parts.push(n + ' en 5 min +' + rep); }
+    const hr = new Date(now).getHours(); if (r && r.admin && (hr < 8 || hr >= 19)) { s += 10; parts.push('hors horaires +10'); }
+    if (ev.k === 'admin-ko' && n >= 10) { s = Math.max(s, 60); parts.push('règle force brute'); }
+  }
   if (r && r.pubFloor && isPublic(ev.src)) { s = Math.max(s, r.pubFloor); parts.push('admin depuis le WAN : critique'); }
   s = Math.min(100, Math.max(r && r.floor || 0, s, 0)); ev.score = s; ev.level = level(s); ev.why = parts.join(' · ');
 }
-const devices = new Map(), types = new Map(), recent = [];
-let SEQ = 0; const hist = [];
+// Fenêtre de répétition : les sources silencieuses depuis 5 min sont oubliées (sinon les scans d'Internet la font grossir sans fin).
+setInterval(() => { const lim = Date.now() - 300e3; for (const [k, a] of win) if (!a.length || a[a.length - 1] < lim) win.delete(k); if (win.size > 500000) win.clear(); }, 60e3).unref();
+// --- réception : un ou plusieurs processus (WORKERS). Chaque processus lit, note et archive le brut ;
+// seuls les événements utiles (référentiel ou gravité moyen et plus) et un échantillon des bénins remontent au processus principal.
+// Un processus suffit jusqu'à plusieurs dizaines de milliers de logs/s ; WORKERS=n en ajoute pour les très gros parcs.
+const WORKERS = Math.max(0, Math.min(32, +process.env.WORKERS || 0)), RAW_GZ = process.env.RAW_GZIP !== '0';
+const RETENTION = Math.max(1, +process.env.RETENTION_DAYS || 90), SAMPLE = Math.max(0, +(process.env.SAMPLE ?? 20)), HIST_MAX = 50000;
 const day = () => new Date().toISOString().slice(0, 10);
-function ingest(line, from) {
+const devKey = ev => ev.from + '|' + (ev.host || ev.f.devID || '');
+// Écriture en flux, un fichier par jour ; le brut est compressé au fil de l'eau (gzip, environ 40 fois plus petit sur des logs Zyxel).
+function dayWriter(name, gz) { let d = '', st = null, z = null;
+  const w = line => { const t = day(); if (t !== d) { w.end(); d = t; st = fs.createWriteStream(path.join(DIR, name(t) + (gz ? '.gz' : '')), { flags: 'a' }); st.on('error', () => {});
+    if (gz) { z = zlib.createGzip({ level: 1 }); z.on('error', () => {}); z.pipe(st); } } (z || st).write(line + '\n'); };
+  w.end = () => { if (z) z.end(); else if (st) st.end(); z = st = null; };
+  setInterval(() => { if (z) z.flush(); }, 5000).unref(); return w; }
+const rawOut = dayWriter(t => 'raw-' + t + (cluster.isWorker ? '.w' + cluster.worker.id : '') + '.log', RAW_GZ);
+const devDelta = new Map(), typeDelta = new Map(); let rxCount = 0, budget = SAMPLE, outBuf = [];
+setInterval(() => { budget = SAMPLE; }, 1000).unref();
+function stage1(line, from) {
   line = line.replace(/\r?\n$/, ''); if (!line.trim()) return;
-  fs.appendFile(path.join(DIR, 'raw-' + day() + '.log'), line + '\n', () => {});
-  const ev = parse(line, from); score(ev); ev.id = ++SEQ; hist.push(ev); if (hist.length > 20000) hist.shift();
-  const { raw, ...flat } = ev; fs.appendFile(path.join(DIR, 'events-' + day() + '.jsonl'), JSON.stringify(flat) + '\n', () => {});
-  let d = devices.get(from);
-  if (!d) { d = { from, host: ev.host, product: ev.product, ver: ev.ver, first: ev.t, count: 0 }; devices.set(from, d);
-    console.log(`\n\x1b[32m✓ Premier log reçu de ${from}${ev.product ? ' : ' + ev.product + ' ' + ev.ver : ''} (format ${ev.fmt})\x1b[0m\n`); }
-  d.last = ev.t; d.count++; if (ev.product) { d.product = ev.product; d.ver = ev.ver; }
-  const tk = (ev.cat || '?') + ' | ' + (ev.name || ev.msg.slice(0, 60)), ty = types.get(tk) || { cat: ev.cat, name: ev.name, count: 0, sev: SEV[ev.sev], k: ev.k, example: line };
-  ty.count++; types.set(tk, ty);
-  recent.push(ev); if (recent.length > 300) recent.shift();
-  if (ev.level !== 'benin' || SHOW_BENIN) console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${from.padEnd(15)} ${COL[ev.level]}${ev.level.toUpperCase().padEnd(8)}${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
+  rawOut(line); rxCount++;
+  const ev = parse(line, from); ev.dev = devKey(ev); score(ev, false);
+  let d = devDelta.get(ev.dev); if (!d) devDelta.set(ev.dev, d = { key: ev.dev, from, host: ev.host, product: ev.product, ver: ev.ver, fmt: ev.fmt, count: 0, first: ev.t, last: 0 });
+  d.count++; d.last = ev.t; if (ev.product) { d.product = ev.product; d.ver = ev.ver; }
+  const tk = (ev.cat || '?') + ' | ' + (ev.name || ev.msg.slice(0, 60)); let ty = typeDelta.get(tk);
+  if (!ty) typeDelta.set(tk, ty = { key: tk, cat: ev.cat, name: ev.name, count: 0, sev: SEV[ev.sev], k: ev.k, example: line }); ty.count++;
+  if (ev.ref || ev.level !== 'benin') emit(ev, false); else if (budget > 0) { budget--; emit(ev, true); }
 }
-setInterval(() => fs.writeFile(path.join(DIR, 'types.json'), JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 2), () => {}), 15e3);
-
-const udp = dgram.createSocket('udp4');
-udp.on('message', (b, ri) => allowed(ri.address) ? ingest(b.toString('utf8'), ri.address) : drop(ri.address));
-udp.on('error', e => { console.error(`UDP ${PORT} : ${e.code}. ${e.code === 'EACCES' ? 'Relance avec sudo.' : e.code === 'EADDRINUSE' ? 'Le port est déjà pris par un autre service syslog.' : ''}`); process.exit(1); });
-const tcpSrv = net.createServer(s => { const ra = String(s.remoteAddress).replace('::ffff:', ''); if (!allowed(ra)) { drop(ra); return s.destroy(); } let buf = ''; s.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { ingest(buf.slice(0, i), s.remoteAddress.replace('::ffff:', '')); buf = buf.slice(i + 1); } }); s.on('error', () => {}); })
-  .on('error', e => console.error('TCP ' + PORT + ' : ' + e.code + ' (UDP reste actif)'));
+function emit(ev, sample) { if (cluster.isWorker) outBuf.push([ev, sample]); else stage2(ev, sample); }
+function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); return p; }
+function startReceivers(h) {
+  const udp = dgram.createSocket('udp4');
+  udp.on('message', (b, ri) => allowed(ri.address) ? h(b.toString('utf8'), ri.address) : drop(ri.address));
+  udp.on('listening', () => { try { udp.setRecvBufferSize(32 << 20); } catch (e) {} });
+  udp.on('error', e => { console.error(`UDP ${PORT} : ${e.code}. ${e.code === 'EACCES' ? 'Relance avec sudo.' : e.code === 'EADDRINUSE' ? 'Le port est déjà pris par un autre service syslog.' : ''}`); process.exit(1); });
+  const tcp = net.createServer(sk => { const ra = String(sk.remoteAddress).replace('::ffff:', ''); if (!allowed(ra)) { drop(ra); return sk.destroy(); }
+    let buf = ''; sk.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { h(buf.slice(0, i), ra); buf = buf.slice(i + 1); } if (buf.length > 1 << 20) buf = ''; }); sk.on('error', () => {}); })
+    .on('error', e => console.error('TCP ' + PORT + ' : ' + e.code + ' (UDP reste actif)'));
+  udp.bind(PORT, BIND); tcp.listen(PORT, BIND); return { udp, tcp };
+}
+if (cluster.isWorker) {   // processus de réception : rien d'autre (ni console, ni mises à jour)
+  if (!SELFTEST) startReceivers(stage1);
+  setInterval(() => { if (outBuf.length) { process.send({ t: 'ev', evs: outBuf }); outBuf = []; } }, 50);
+  setInterval(() => process.send({ t: 'stats', ...statsPayload() }), 1000);
+  process.on('disconnect', () => { rawOut.end(); process.exit(0); });
+  return;
+}
+// --- processus principal : notation complète, incidents, historique, console
+const devices = new Map(), types = new Map(), recent = [], hist = [], incidents = new Map();
+let SEQ = 0, total = 0, rate = 0, stopping = false, rx = null;
+const evOut = dayWriter(t => 'events-' + t + '.jsonl');
+function stage2(ev, sample, replay) {
+  if (!sample && !replay) score(ev, true);
+  ev.id = ++SEQ; hist.push(ev); if (hist.length > HIST_MAX * 1.1) hist.splice(0, hist.length - HIST_MAX);
+  recent.push(ev); if (recent.length > 300) recent.shift();
+  if (sample) return SHOW_BENIN && !WORKERS && console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL.benin}BENIN   ${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
+  if (!replay) evOut(JSON.stringify(ev));
+  if (ev.level !== 'benin') incident(ev);
+  if (!replay) console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL[ev.level]}${ev.level.toUpperCase().padEnd(8)}${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
+}
+// Incidents agrégés côté serveur : un par (type, équipement, source), gardés 7 jours après le dernier événement.
+function incident(ev) {
+  const key = ev.k + '|' + ev.dev + '|' + ev.src; let I = incidents.get(key);
+  if (I) incidents.delete(key); else I = { key, k: ev.k, dev: ev.dev, from: ev.from, host: ev.host, product: ev.product, src: ev.src, cat: ev.cat, first: ev.t, count: 0, score: 0, level: 'benin', samples: [] };
+  I.count++; I.last = ev.t; I.msg = ev.msg; I.why = ev.why; if (ev.score >= I.score) { I.score = ev.score; I.level = ev.level; }
+  I.samples.push(ev.raw); if (I.samples.length > 5) I.samples.shift(); incidents.set(key, I);
+  if (incidents.size > 50000) incidents.delete(incidents.keys().next().value);
+}
+setInterval(() => { const lim = Date.now() - 7 * 864e5; for (const [k, I] of incidents) if (I.last < lim) incidents.delete(k); }, 600e3).unref();
+function mergeStats(p) {
+  total += p.n; rate += p.n;
+  for (const x of p.devs) { let d = devices.get(x.key);
+    if (!d) { d = { ...x, count: 0 }; devices.set(x.key, d); console.log(`\n\x1b[32m✓ Premier log reçu de ${x.from}${x.host ? ' (' + x.host + ')' : ''}${x.product ? ' : ' + x.product + ' ' + x.ver : ''} (format ${x.fmt})\x1b[0m\n`); }
+    d.count += x.count; d.last = Math.max(d.last || 0, x.last); if (x.product) { d.product = x.product; d.ver = x.ver; } }
+  for (const x of p.types) { let ty = types.get(x.key); if (!ty) { if (types.size >= 5000) continue; types.set(x.key, ty = { ...x, count: 0 }); } ty.count += x.count; }
+}
+let lastRate = 0; setInterval(() => { lastRate = Math.round(rate / 10); rate = 0; }, 10e3).unref();
+setInterval(() => { if (!WORKERS) mergeStats(statsPayload()); }, 1000).unref();
+setInterval(() => fs.writeFile(path.join(DIR, 'types.json'), JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 2), () => {}), 15e3).unref();
+// Archives : les jours passés sont compressés, au-delà de RETENTION_DAYS (90 par défaut) ils sont supprimés.
+function maintain() { const today = day(), lim = new Date(Date.now() - RETENTION * 864e5).toISOString().slice(0, 10);
+  let names = []; try { names = fs.readdirSync(DIR); } catch (e) { return; }
+  for (const f of names) { const m = /^(?:raw|events)-(\d{4}-\d{2}-\d{2})(?:\.w\d+)?\.(?:log|jsonl)(\.gz)?$/.exec(f); if (!m) continue; const p = path.join(DIR, f);
+    if (m[1] < lim) { fs.rmSync(p, { force: true }); continue; }
+    if (m[1] < today && !m[2]) { try { if (Date.now() - fs.statSync(p).mtimeMs < 600e3) continue; } catch (e) { continue; }
+      const tmp = p + '.gz.part'; require('stream').pipeline(fs.createReadStream(p), zlib.createGzip(), fs.createWriteStream(tmp), err => { if (err) return fs.rmSync(tmp, { force: true }); fs.renameSync(tmp, p + '.gz'); fs.rmSync(p, { force: true }); }); } } }
+function startWorkers() {
+  cluster.setupPrimary({ silent: false });
+  const onMsg = m => { if (m && m.t === 'ev') for (const [ev, sm] of m.evs) stage2(ev, sm); else if (m && m.t === 'stats') mergeStats(m); };
+  for (let i = 0; i < WORKERS; i++) cluster.fork().on('message', onMsg);
+  cluster.on('exit', (w, code) => { if (stopping) return; console.log(`\x1b[33mProcessus de réception ${w.id} arrêté (${code}), relance.\x1b[0m`); setTimeout(() => cluster.fork().on('message', onMsg), 1000); });
+}
 
 const PAGE = `<!DOCTYPE html><html lang="fr"><meta charset="utf-8"><title>SysLens — test</title><style>body{font:14px system-ui;background:#0b100e;color:#e5ede9;margin:24px}h1{font-size:20px}table{border-collapse:collapse;width:100%;margin:10px 0 26px}td,th{padding:5px 8px;border-bottom:1px solid #1c2622;text-align:left;vertical-align:top}th{color:#7a8a83;font-weight:400}.critique{color:#ff5a5f;font-weight:600}.grave{color:#ff9248}.moyen{color:#f0c94a}.benin{color:#7a8a83}code{font-size:12px;color:#7a8a83}</style><h1>SysLens — récepteur de test</h1><div id="v">Chargement…</div><script>
 const e=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -99,11 +172,12 @@ async function go(){const d=await (await fetch('/api')).json();document.getEleme
 '<h2>Derniers logs</h2><table><tr><th>Heure</th><th>Niveau</th><th>Score</th><th>Catégorie</th><th>Message</th><th>Calcul</th></tr>'+d.events.map(x=>'<tr><td>'+new Date(x.t).toLocaleTimeString('fr-FR')+'</td><td class="'+x.level+'">'+x.level+'</td><td>'+x.score+'</td><td>'+e(x.cat)+'</td><td>'+e(x.msg)+'</td><td><code>'+e(x.why)+'</code></td></tr>').join('')+'</table>'+
 '<h2>Types de logs vus ('+d.types.length+')</h2><table><tr><th>Nb</th><th>Catégorie</th><th>Nom</th><th>Gravité Zyxel</th><th>Règle</th></tr>'+d.types.map(x=>'<tr><td>'+x.count+'</td><td>'+e(x.cat)+'</td><td>'+e(x.name)+'</td><td>'+x.sev+'</td><td>'+x.k+'</td></tr>').join('')+'</table>';}
 go();setInterval(go,2000);</script></html>`;
-try { const fe = path.join(DIR, 'events-' + day() + '.jsonl'), fr = path.join(DIR, 'raw-' + day() + '.log');
-  const evs = fs.readFileSync(fe, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)), raws = fs.existsSync(fr) ? fs.readFileSync(fr, 'utf8').split('\n').filter(l => l.trim()) : [];
-  evs.forEach((e, i) => { if (!allowed(e.from)) return; e.raw = raws.length === evs.length ? raws[i] : ''; e.id = ++SEQ; hist.push(e);
-    let d = devices.get(e.from); if (!d) { d = { from: e.from, host: e.host, product: e.product, ver: e.ver, first: e.t, count: 0 }; devices.set(e.from, d); } d.last = e.t; d.count++; });
-  if (hist.length) console.log('Historique du jour rechargé : ' + hist.length + ' logs');
+try { const fe = path.join(DIR, 'events-' + day() + '.jsonl');
+  // Le fichier du jour ne garde que les événements utiles (avec leur ligne brute) : rechargement rapide même à fort débit.
+  for (const l of fs.readFileSync(fe, 'utf8').split('\n')) { if (!l) continue; let e; try { e = JSON.parse(l); } catch (x) { continue; }
+    if (!allowed(e.from)) continue; e.raw = e.raw || ''; e.f = e.f || {}; e.dev = e.dev || e.from + '|' + (e.host || ''); stage2(e, false, true);
+    let d = devices.get(e.dev); if (!d) devices.set(e.dev, d = { key: e.dev, from: e.from, host: e.host, product: e.product, ver: e.ver, fmt: e.fmt, first: e.t, count: 0 }); d.last = e.t; d.count++; }
+  if (hist.length) console.log('Historique du jour rechargé : ' + hist.length + ' événements utiles');
 } catch (e) {}
 // --- logos d'extension : récupérés une fois sur le site officiel de la marque, puis gardés dans extensions/<id>/
 const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'img:https://upload.wikimedia.org/wikipedia/commons/0/08/Cisco_logo_blue_2016.svg',
@@ -236,7 +310,10 @@ const webSrv = http.createServer((q, r) => {
   else if (q.url === '/api/update' && q.method === 'POST') { const json = o => { r.writeHead(sameOrigin(q) ? 200 : 403, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json({ error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 256) q.destroy(); });
     q.on('end', async () => { let install = false; try { install = !!JSON.parse(body).install; } catch (e) {} json(await checkUpdate(install)); }); }
-  else if (q.url.startsWith('/api/events')) { const since = +(new URL(q.url, 'http://x').searchParams.get('since') || 0); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ version: VERSION, devices: [...devices.values()], events: hist.filter(e => e.id > since).slice(-5000) })); }
+  else if (q.url.startsWith('/api/events')) { const since = +(new URL(q.url, 'http://x').searchParams.get('since') || 0); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); const evs = []; for (let i = hist.length - 1; i >= 0 && hist[i].id > since && evs.length < 5000; i--) evs.push(hist[i]); evs.reverse();
+    r.end(JSON.stringify({ version: VERSION, stats: { rate: lastRate, total, workers: WORKERS, devices: devices.size, incidents: incidents.size }, devices: [...devices.values()], events: evs })); }
+  else if (q.url.startsWith('/api/incidents')) { const lv = new URL(q.url, 'http://x').searchParams.get('level'); const out = []; for (const I of incidents.values()) if (!lv || I.level === lv) out.push(I);
+    out.sort((a, b) => b.last - a.last); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ total: out.length, incidents: out.slice(0, 2000) })); }
   else if (q.url.startsWith('/console')) { fs.readFile(path.join(__dirname, 'console.html'), (err, b) => { r.writeHead(err ? 404 : 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); r.end(err ? 'console.html introuvable' : b); }); }
   else if (q.url === '/api/ai' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
@@ -284,14 +361,17 @@ async function checkUpdate(install) {
     console.log(`\x1b[32m✓ SysLens ${rel.tag_name} installé (ancienne version gardée dans .previous/), redémarrage…\x1b[0m`); upd.msg = rel.tag_name + ' installé, redémarrage.'; setTimeout(restart, 300);
   } catch (e) { upd.state = 'error'; upd.msg = e.message; upd.checkedAt = Date.now(); console.log(`\x1b[33mMise à jour : ${e.message}\x1b[0m`); }
   return upd; }
-function restart() { let left = 3, gone = false; const go = () => { if (gone) return; gone = true; cp.spawn(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, SYSLENS_WAIT_PID: String(process.pid) } }); process.exit(0); };
-  const one = () => { if (--left <= 0) go(); }; setTimeout(go, 4000);
-  try { udp.close(one); } catch (e) { one(); } tcpSrv.close(one); webSrv.close(one); if (webSrv.closeAllConnections) webSrv.closeAllConnections(); }
+function restart() { let gone = false; stopping = true; const go = () => { if (gone) return; gone = true; cp.spawn(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, SYSLENS_WAIT_PID: String(process.pid) } }); process.exit(0); };
+  setTimeout(go, 4000); evOut.end(); rawOut.end();
+  if (rx) { try { rx.udp.close(); } catch (e) {} rx.tcp.close(); } for (const w of Object.values(cluster.workers || {})) w.kill();
+  webSrv.close(() => setTimeout(go, 300)); if (webSrv.closeAllConnections) webSrv.closeAllConnections(); }
 
 if (SELFTEST) { console.log('selftest ok ' + VERSION); process.exit(0); }
-udp.bind(PORT, BIND); tcpSrv.listen(PORT, BIND);
+if (WORKERS) startWorkers(); else rx = startReceivers(stage1);
+setTimeout(maintain, 5000).unref(); setInterval(maintain, 3600e3).unref();
+setInterval(() => { if (lastRate || incidents.size) console.log(`\x1b[2mDébit ${lastRate} logs/s · ${devices.size} équipements · ${incidents.size} incidents · ${WORKERS || 1} processus de réception\x1b[0m`); }, 300e3).unref();
 webSrv.listen(WEB, '127.0.0.1', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
-  console.log(`SysLens ${VERSION} — écoute syslog UDP et TCP ${BIND}:${PORT}${ALLOW.length ? ', logs acceptés seulement depuis ' + process.env.ALLOW : ''}\nIP à mettre dans le USG (serveur distant) : ${ips.join(' ou ') || 'aucune IP détectée'}\nPage de suivi : http://localhost:${WEB}\nConsole SysLens : http://localhost:${WEB}/console\nFichiers : ${DIR}\nMise à jour auto : ${upd.auto ? 'activée (' + REPO + ', releases)' : 'désactivée'}\nCtrl+C pour arrêter.\n`);
+  console.log(`SysLens ${VERSION} — écoute syslog UDP et TCP ${BIND}:${PORT} (${WORKERS ? WORKERS + ' processus de réception' : '1 processus'})${ALLOW.length ? ', logs acceptés seulement depuis ' + process.env.ALLOW : ''}\nIP à mettre dans le USG (serveur distant) : ${ips.join(' ou ') || 'aucune IP détectée'}\nPage de suivi : http://localhost:${WEB}\nConsole SysLens : http://localhost:${WEB}/console\nFichiers : ${DIR}\nMise à jour auto : ${upd.auto ? 'activée (' + REPO + ', releases)' : 'désactivée'}\nCtrl+C pour arrêter.\n`);
 });
 if (upd.auto) { setTimeout(() => checkUpdate(true), 60e3); setInterval(() => checkUpdate(true), 3600e3); }

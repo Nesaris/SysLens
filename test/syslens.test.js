@@ -176,3 +176,20 @@ test('logo d’extension : remplacé quand sa source change dans une nouvelle ve
   assert.equal(r.statut, 302); assert.match(r.entetes.location, /logo\.svg$/);
   assert.ok(!fs.existsSync(path.join(ext(s1.dossier), 'logo.png')));
 });
+
+test('abonnement : connexion suivie par le serveur (Codex par la page, Claude Code par code collé)', { skip: process.platform === 'win32' }, async () => {
+  const dossier = installer(), bin = path.join(dossier, 'outils', 'node_modules', '.bin'); fs.mkdirSync(bin, { recursive: true });
+  const faux = (nom, corps) => { fs.writeFileSync(path.join(bin, nom), '#!/usr/bin/env node\nconst fs = require("fs"), ok = __dirname + "/' + nom + '-ok", a = process.argv.slice(2).join(" ");\nif (a === "--version") { console.log("' + nom + ' 9.9"); process.exit(0); }\n' + corps); fs.chmodSync(path.join(bin, nom), 0o755); };
+  faux('codex', 'if (a === "login status") process.exit(fs.existsSync(ok) ? 0 : 1);\nif (a === "login") { console.log("Ouvrez https://auth.openai.com/oauth/authorize?essai=1"); setTimeout(() => { fs.writeFileSync(ok, ""); process.exit(0); }, 1500); }');
+  faux('claude', 'if (a === "auth status --json") { console.log(JSON.stringify({ loggedIn: fs.existsSync(ok) })); process.exit(0); }\nif (a === "auth login --claudeai") { console.log("visit: https://claude.com/cai/oauth/authorize?essai=1\\nPaste code here if prompted >"); process.stdin.on("data", d => { if (String(d).trim() === "CODE-essai-123") { fs.writeFileSync(ok, ""); process.exit(0); } else process.exit(1); }); }');
+  const s = await demarrer({}, dossier), json = { 'content-type': 'application/json' };
+  const ia = o => requete(s.web, '/api/ai', { methode: 'POST', corps: JSON.stringify(o), entetes: json }).then(r => r.json);
+  let c = await ia({ op: 'cli', tool: 'codex' }); assert.equal(c.installed, true); assert.equal(c.logged, false);
+  c = await ia({ op: 'login', tool: 'codex' }); assert.equal(c.job.phase, 'login'); assert.match(c.job.url, /^https:\/\/auth\.openai\.com\//);
+  for (let i = 0; i < 40 && !(c.logged); i++) { await attendre(150); c = await ia({ op: 'cli', tool: 'codex' }); } assert.equal(c.logged, true);
+  c = await ia({ op: 'login', tool: 'claudecode' }); assert.equal(c.job.code, true); assert.match(c.job.url, /^https:\/\/claude\.com\//);
+  assert.match((await ia({ op: 'code', tool: 'claudecode', code: 'pas de code' })).error, /Code invalide/);
+  await ia({ op: 'code', tool: 'claudecode', code: 'CODE-essai-123' });
+  for (let i = 0; i < 40 && !(c.logged); i++) { await attendre(150); c = await ia({ op: 'cli', tool: 'claudecode' }); } assert.equal(c.logged, true);
+  assert.match((await ia({ op: 'install', tool: 'inconnu' })).error, /Outil inconnu/);
+});

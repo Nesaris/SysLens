@@ -176,11 +176,51 @@ async function tgApi(q) {
   throw new Error('Opération inconnue.'); }
 // --- IA : liste des modèles (vérifie la clé ou l'adresse Ollama) et présence de Codex / Claude Code
 const AI_API = { chatgpt: ['https://api.openai.com/v1/models', 'bearer'], mistral: ['https://api.mistral.ai/v1/models', 'bearer'], grok: ['https://api.x.ai/v1/models', 'bearer'], hermes: ['https://inference-api.nousresearch.com/v1/models', 'bearer'], gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', 'google'], claude: ['https://api.anthropic.com/v1/models?limit=100', 'anthropic'] };
+// --- Abonnements (Codex, Claude Code, Gemini CLI) : installés par SysLens dans son dossier outils/ (sans droits administrateur),
+// puis connexion au compte : l'outil ouvre la page de connexion du fournisseur, SysLens suit la fin tout seul.
+const CLI = {
+  codex: { bin: 'codex', pkg: '@openai/codex', login: ['login'], status: run => run(['login', 'status']).status === 0 },
+  claudecode: { bin: 'claude', pkg: '@anthropic-ai/claude-code', login: ['auth', 'login', '--claudeai'], code: true,
+    status: run => { try { return JSON.parse(run(['auth', 'status', '--json']).stdout).loggedIn === true; } catch (e) { return false; } } },
+  geminicli: { bin: 'gemini', pkg: '@google/gemini-cli', login: ['-p', 'OK'], env: { GOOGLE_GENAI_USE_GCA: 'true', GEMINI_CLI_TRUST_WORKSPACE: 'true' },
+    status: () => fs.existsSync(path.join(os.homedir(), '.gemini', 'oauth_creds.json')) } };
+const OUTILS = path.join(__dirname, 'outils'), WIN = process.platform === 'win32', cliJobs = {};
+const LOGIN_HOSTS = /^https:\/\/(auth\.openai\.com|(platform\.|www\.)?claude\.(com|ai)|console\.anthropic\.com|accounts\.google\.com)\//;
+const cliEnv = t => ({ ...process.env, ...(t.env || {}), PATH: path.dirname(process.execPath) + path.delimiter + (process.env.PATH || '') });
+const cliBin = t => { const local = path.join(OUTILS, 'node_modules', '.bin', t.bin + (WIN ? '.cmd' : '')); return fs.existsSync(local) ? local : t.bin; };
+const cliRun = t => args => cp.spawnSync(cliBin(t), args, { encoding: 'utf8', timeout: 15000, env: cliEnv(t), shell: WIN });
+const strip = x => String(x).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+function cliStatus(id) { const t = CLI[id], j = cliJobs[id], v = cliRun(t)(['--version']);
+  const job = j && { phase: j.phase, url: j.url || '', err: j.err || '', code: !!t.code };
+  if (v.error || v.status !== 0) return { installed: false, job };
+  return { installed: true, version: strip(v.stdout || v.stderr).trim().split('\n')[0].slice(0, 80), logged: !(j && j.phase) && t.status(cliRun(t)), job }; }
+function cliStart(id, phase) { const t = CLI[id], old = cliJobs[id]; if (old && old.phase) return; const j = cliJobs[id] = { phase, out: '' };
+  let proc;
+  if (phase === 'install') { fs.mkdirSync(OUTILS, { recursive: true });
+    const npm = path.join(path.dirname(process.execPath), WIN ? 'npm.cmd' : 'npm');
+    proc = cp.spawn(fs.existsSync(npm) ? npm : 'npm', ['install', '--prefix', OUTILS, '--no-audit', '--no-fund', '--loglevel=error', t.pkg + '@latest'], { env: cliEnv(t), shell: WIN }); }
+  else proc = cp.spawn(cliBin(t), t.login, { env: cliEnv(t), cwd: OUTILS, shell: WIN });
+  j.proc = proc; console.log(`\x1b[2m${t.bin} : ${phase === 'install' ? 'installation de ' + t.pkg : 'connexion au compte'} en cours\x1b[0m`);
+  const tick = setInterval(() => { if (id === 'geminicli' && phase === 'login' && t.status()) proc.kill(); }, 2000);
+  const kill = setTimeout(() => { j.err = 'Délai dépassé.'; proc.kill(); }, phase === 'install' ? 10 * 60e3 : 15 * 60e3);
+  const read = d => { j.out = (j.out + strip(d)).slice(-20000);
+    if (!j.url) { const u = (j.out.match(/https:\/\/[^\s"'<>]+/g) || []).find(x => LOGIN_HOSTS.test(x)); if (u) j.url = u; }
+    if (/\[Y\/n\]/.test(j.out) && !j.yes) { j.yes = true; proc.stdin.write('y\n'); } };
+  proc.stdout.on('data', read); proc.stderr.on('data', read); proc.on('error', e => { j.err = e.message; });
+  proc.on('close', code => { clearInterval(tick); clearTimeout(kill); j.phase = '';
+    const ok = phase === 'install' ? code === 0 : t.status(cliRun(t));
+    if (!ok && !j.err) j.err = phase === 'install' ? 'Installation impossible : ' + (j.out.trim().split('\n').pop() || 'npm a échoué') : 'Connexion non terminée.';
+    console.log(`\x1b[${ok ? '32m✓' : '2m'} ${t.bin} : ${phase === 'install' ? 'installation' : 'connexion'} ${ok ? 'terminée' : 'échouée'}\x1b[0m`); }); }
 async function aiApi(q) {
-  if (q.op === 'cli') { const tool = { codex: 'codex', claudecode: 'claude', geminicli: 'gemini' }[q.tool]; if (!tool) throw new Error('Outil inconnu.');
-    const r = cp.spawnSync(tool, ['--version'], { encoding: 'utf8', timeout: 8000 }); if (r.error || r.status !== 0) return { installed: false };
-    let logged = null; if (tool === 'codex') logged = cp.spawnSync('codex', ['login', 'status'], { encoding: 'utf8', timeout: 8000 }).status === 0;
-    return { installed: true, logged, version: String(r.stdout || r.stderr).trim().split('\n')[0].slice(0, 80) }; }
+  if (['cli', 'install', 'login', 'code', 'cancel'].includes(q.op)) { const t = CLI[q.tool]; if (!t) throw new Error('Outil inconnu.'); const j = cliJobs[q.tool];
+    if (q.op === 'install') cliStart(q.tool, 'install');
+    if (q.op === 'login') { if (!cliStatus(q.tool).installed) throw new Error('Outil non installé.'); cliStart(q.tool, 'login'); }
+    if (q.op === 'code') { const c = String(q.code || '').trim(); if (!t.code || !j || j.phase !== 'login') throw new Error('Aucune connexion en attente.');
+      if (!/^[\w#.~-]{8,512}$/.test(c)) throw new Error('Code invalide.'); j.proc.stdin.write(c + '\n'); }
+    if (q.op === 'cancel' && j && j.phase) { j.err = 'Annulé.'; j.proc.kill(); }
+    // Connexion : on attend que l'outil ait affiché l'adresse de la page (3 s au plus), pour la proposer tout de suite.
+    for (let i = 0; q.op !== 'cli' && i < 30; i++) { const k = cliJobs[q.tool]; if (q.op !== 'login' || !k || !k.phase || k.url) break; await new Promise(r => setTimeout(r, 100)); }
+    return cliStatus(q.tool); }
   if (q.op === 'models') {
     if (q.provider === 'ollama') { let u; try { u = new URL('/api/tags', String(q.url || '')); } catch (e) { throw new Error('Adresse invalide.'); } if (!/^https?:$/.test(u.protocol)) throw new Error('Adresse invalide.');
       const r = await fetch(u, { signal: AbortSignal.timeout(8000) }).catch(() => { throw new Error('Ollama ne répond pas à ' + u.origin + '.'); });

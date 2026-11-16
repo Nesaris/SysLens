@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.3.6",
+    "date": "2026-11-16",
+    "points": [
+      "Abonnement ChatGPT, Claude ou Google : SysLens installe tout seul Codex, Claude Code ou Gemini CLI, puis ouvre la page de connexion du compte et voit quand c’est fait.",
+      "Pour Claude Code, le code affiché par la page de connexion peut être collé directement dans la fenêtre."
+    ]
+  },
+  {
     "version": "0.3.5",
     "date": "2026-11-16",
     "points": [

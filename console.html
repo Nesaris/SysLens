@@ -813,30 +813,49 @@ const AIP = [
   {id: 'gemini', name: 'Gemini', type: 'API ou abonnement', desc: 'Modèles de Google, par clé API ou avec un compte Google via Gemini CLI.', modes: ['api', 'sub'], sub: 'geminicli'},
   {id: 'grok', name: 'Grok', type: 'API', desc: 'Modèles de xAI, par clé API.', modes: ['api']}];
 const AIAPI = {mistral: ['Mistral', 'console.mistral.ai › API Keys'], chatgpt: ['OpenAI', 'platform.openai.com › API keys'], claude: ['Anthropic', 'console.anthropic.com › API Keys'], hermes: ['Nous Research', 'portal.nousresearch.com › API Keys'], gemini: ['Google', 'aistudio.google.com › Get API key'], grok: ['xAI', 'console.x.ai › API Keys']};
-const SUBS = {codex: {name: 'Codex', plan: 'ChatGPT (Plus, Pro, Business ou Enterprise)', install: 'npm install -g @openai/codex', login: 'codex login --device-auth', how: ' (un code s’affiche, à valider dans le navigateur)'},
-  geminicli: {name: 'Gemini CLI', plan: 'Google (compte Google, Google AI Pro ou Ultra)', install: 'npm install -g @google/gemini-cli', login: 'gemini', how: ', puis choisissez la connexion avec votre compte Google'},
-  claudecode: {name: 'Claude Code', plan: 'Claude (Pro, Max, Team ou Enterprise)', install: 'npm install -g @anthropic-ai/claude-code', login: 'claude', how: ', puis choisissez la connexion avec votre compte Claude'}};
+const SUBS = {codex: {name: 'Codex', plan: 'ChatGPT (Plus, Pro, Business ou Enterprise)', acct: 'ChatGPT'},
+  geminicli: {name: 'Gemini CLI', plan: 'Google (compte Google, Google AI Pro ou Ultra)', acct: 'Google'},
+  claudecode: {name: 'Claude Code', plan: 'Claude (Pro, Max, Team ou Enterprise)', acct: 'Claude'}};
 const ai = {prov: 'ollama', mode: 'local', url: 'http://ia.exemple.local:11434', model: 'qwen3.6:27b', timeout: 60, pseudo: true, allowed: [],
   provName() { const p = AIP.find(x => x.id === this.prov); return (p ? p.name : this.prov) + ' ' + ({local: '(local)', api: '(API)', sub: '(abonnement ' + (p && p.sub ? SUBS[p.sub].name : '') + ')'}[this.mode] || ''); }};
 const aiCloud = () => ai.mode !== 'local';
 const aiCall = async body => { const r = await fetch('/api/ai', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; };
-const aiNew = p => ({mode: p.modes.length === 1 ? p.modes[0] : '', url: 'http://localhost:11434', key: '', models: null, model: '', ack: false, log: false, auth: {}, cli: ''});
+const aiNew = p => ({mode: p.modes.length === 1 ? p.modes[0] : '', url: 'http://localhost:11434', key: '', models: null, model: '', ack: false, log: false, auth: {}, cli: '', cliSt: null, code: '', auto: ''});
 const MODEX = {local: 'En local (Ollama)', api: 'Clé API', sub: 'Abonnement'};
 function aiModels(s, p) { const local = s.mode === 'local';
   return (s.models ? (s.models.length ? `<label class="xf1" style="display:grid;gap:5px;font-size:13px;color:var(--mute)">Modèle<select data-k="model">${['', ...s.models].map(m => `<option value="${esc(m)}" ${s.model === m ? 'selected' : ''}>${m ? esc(m) : 'Choisir…'}</option>`).join('')}</select></label>${p.id === 'hermes' && local && !s.models.some(m => /hermes/i.test(m)) ? `<p class="note">Aucun modèle Hermes installé : <span class="mono">ollama pull hermes3</span> sur la machine Ollama, puis relancez la liste.</p>` : ''}` : `<p class="note">Aucun modèle disponible.</p>`) + `<button class="lnk" data-xmodels>Relancer la liste</button>`
     : `<button class="btn p" data-xmodels>${local ? 'Lister les modèles installés' : 'Vérifier la clé et lister les modèles'}</button>`) + `<p class="note" role="alert" style="color:var(--crit)">${esc(xw && xw.err || '')}</p>`; }
+// Abonnement : l'état vient du serveur (installé ? connecté ? installation ou connexion en cours ?), relu toutes les 2 s tant que c'est utile.
+function aiCliBody(s, p, u) { const c = s.cliSt, j = c && c.job || {}, busy = j.phase, err = `<p class="note" role="alert" style="color:var(--crit)">${esc(xw && xw.err || j.err || '')}</p>`;
+  if (!c) { aiCliPoll(p.sub, 0); return `<p class="note">Recherche de ${esc(u.name)} sur la machine du serveur…</p>`; }
+  if (busy === 'install') return `<p class="ai"><b>Installation de ${esc(u.name)}…</b> Une à deux minutes. Vous pouvez laisser cette fenêtre ouverte.</p>`;
+  if (!c.installed) return `<p>${esc(u.name)} n’est pas encore installé sur la machine du serveur SysLens. SysLens l’installe dans son propre dossier, sans droits administrateur.</p><button class="btn p" data-xcli="install">Installer ${esc(u.name)}</button>` + err;
+  if (busy === 'login') return `<p class="ai"><b>Connexion en cours.</b> La page de connexion ${esc(u.acct)} s’est ouverte dans votre navigateur : connectez-vous, SysLens voit tout seul quand c’est fait.</p>
+    <div class="wnav" style="margin-top:12px">${j.url ? `<a class="btn" href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">Ouvrir la page de connexion</a>` : ''}<button class="btn" data-xcli="cancel">Annuler</button></div>` +
+    (j.code ? `<p class="note" style="margin:14px 0 6px">Si la page vous donne un code, collez-le ici :</p><div class="xf1" style="display:flex;gap:8px"><input type="text" data-k="code" value="${esc(s.code || '')}" placeholder="Code de connexion" autocomplete="off" spellcheck="false"><button class="btn p" data-xcli="code">Valider</button></div>` : '') + err;
+  if (!c.logged) return `<p>${esc(u.name)} <span class="mono">${esc(c.version)}</span> est installé. Il reste à le connecter à votre compte ${esc(u.acct)}.</p><button class="btn p" data-xcli="login">Se connecter à ${esc(u.acct)}</button>` + err;
+  return `<p class="ai"><b>${esc(u.name)} est connecté</b> à votre compte ${esc(u.acct)} · <span class="mono">${esc(c.version)}</span></p>`; }
+let cliTimer = 0;
+async function aiCliPoll(tool, wait = 2000, op = 'cli', extra = {}) { clearTimeout(cliTimer);
+  cliTimer = setTimeout(async () => { if (!xw || !xw.ai || XS[xw.id].mode !== 'sub' || AIP.find(x => x.id === xw.id).sub !== tool) return; const s = XS[xw.id], before = JSON.stringify(s.cliSt); xw.err = '';
+    try { s.cliSt = LIVEMODE ? await aiCall({op, tool, ...extra}) : {installed: true, logged: true, version: 'démo'}; } catch (e) { xw.err = e.message; s.cliSt = s.cliSt || {installed: false}; }
+    s.cli = s.cliSt.installed && s.cliSt.logged ? s.cliSt.version : '';
+    if (JSON.stringify(s.cliSt) !== before || op !== 'cli') xRender();
+    const c = s.cliSt, busy = c.job && c.job.phase;
+    // Tout seul : on installe s'il manque, puis on ouvre la connexion (une fois par configuration ; ensuite, les boutons).
+    if (!busy && !xw.err && !(c.job && c.job.err)) { if (!c.installed && !s.auto) { s.auto = 'install'; return aiCliPoll(tool, 0, 'install'); }
+      if (c.installed && !c.logged && s.auto !== 'login') { s.auto = 'login'; return aiCliPoll(tool, 0, 'login'); } }
+    if (busy) aiCliPoll(tool); }, wait); }
 function aiSteps(p) { return s => {
   const st = [];
   if (p.modes.length > 1) st.push({t: 'Comment se connecter ?', d: 'Choisissez comment SysLens parlera au modèle.',
     body: s => `<div class="xchoice">${p.modes.map(m => `<label class="xopt"><input type="radio" name="aimode" data-kset="mode" value="${m}" ${s.mode === m ? 'checked' : ''}><span>${m === 'sub' ? xLogo(p.sub, SUBS[p.sub].name) : m === 'local' ? xLogo('ollama', 'Ollama') : xLogo(p.id, p.name)}<b>${m === 'sub' ? 'Abonnement ' + p.name + ' via ' + SUBS[p.sub].name : MODEX[m]}</b><span class="note">${m === 'local' ? 'Le modèle tourne sur vos machines, rien ne sort.' : m === 'api' ? 'Payé à l’usage, avec une clé de ' + AIAPI[p.id][0] + '.' : 'Utilise votre abonnement ' + SUBS[p.sub].plan + ', sans clé API.'}</span></span></label>`).join('')}</div>`,
-    ok: s => !!s.mode, sum: s => s.mode === 'sub' ? 'Abonnement via ' + SUBS[p.sub].name : MODEX[s.mode], reset: ['models', 'model', 'cli']});
+    ok: s => !!s.mode, sum: s => s.mode === 'sub' ? 'Abonnement via ' + SUBS[p.sub].name : MODEX[s.mode], reset: ['models', 'model', 'cli', 'cliSt', 'auto']});
   if (s.mode === 'local') st.push({t: 'Adresse d’Ollama', d: 'La machine où tourne Ollama, joignable depuis le serveur SysLens.', body: s => `<div class="xf1">${xf('Adresse', 'url', s.url, 'url', 'http://localhost:11434')}</div>`, ok: s => /^https?:\/\/\S+/.test(s.url), sum: s => s.url, reset: ['models', 'model']});
   if (s.mode === 'api') st.push({t: 'Clé API', d: `Créez une clé dédiée à SysLens chez ${AIAPI[p.id][0]}, avec un plafond de dépense.`, body: s => xhow([`Ouvrez <b>${AIAPI[p.id][1]}</b>.`, 'Créez une clé nommée « SysLens », avec une limite de dépense mensuelle.', 'Collez-la ci-dessous.']) + `<div class="xf1">${xf('Clé API', 'key', s.key, 'password', 'Collez la clé ici')}</div>`, ok: s => s.key.trim().length >= 20, sum: () => 'Clé enregistrée', reset: ['models', 'model']});
-  if (s.mode === 'sub') { const u = SUBS[p.sub]; st.push({t: 'Installer ' + u.name, d: `SysLens passe par ${u.name}, connecté à votre compte ${p.name}, sur la machine du serveur SysLens.`,
-    body: s => xhow([`Dans un terminal de cette machine : <span class="mono">${u.install}</span>`, `Connectez-vous : <span class="mono">${u.login}</span>${u.how}.`, 'Revenez ici et vérifiez.']) +
-      `<p class="ai"><b>Avant d’y envoyer des logs de clients</b> : un abonnement personnel ne fournit en général pas de contrat de sous-traitance (RGPD). Réservez-le aux essais, ou utilisez une offre entreprise qui en inclut un.</p>` +
-      (s.cli ? `<p class="ai"><b>${esc(u.name)} trouvé :</b> <span class="mono">${esc(s.cli)}</span></p>` : `<button class="btn p" data-xcli="${p.sub}">Vérifier ${esc(u.name)}</button>`) + `<p class="note" role="alert" style="color:var(--crit)">${esc(xw && xw.err || '')}</p>`,
-    ok: s => !!s.cli, sum: s => s.cli ? u.name + ' ' + s.cli : 'Non vérifié'}); }
+  if (s.mode === 'sub') { const u = SUBS[p.sub]; st.push({t: 'Installer et connecter ' + u.name, d: `SysLens installe ${u.name} sur sa machine, puis vous vous connectez à votre compte ${u.acct}.`,
+    body: s => aiCliBody(s, p, u) + `<p class="ai"><b>Avant d’y envoyer des logs de clients</b> : un abonnement personnel ne fournit en général pas de contrat de sous-traitance (RGPD). Réservez-le aux essais, ou utilisez une offre entreprise qui en inclut un.</p>`,
+    ok: s => !!s.cli, sum: s => s.cli ? u.name + ' ' + s.cli + ', connecté' : 'Non connecté'}); }
   if (s.mode && s.mode !== 'sub') st.push({t: 'Modèle', d: s.mode === 'local' ? 'Les modèles déjà installés sur votre Ollama.' : `SysLens interroge ${AIAPI[p.id][0]} avec la clé : si elle est refusée, vous le saurez ici.`, body: s => aiModels(s, p), ok: s => !!s.model, sum: s => s.model || '—'});
   if (s.mode === 'sub') st.push({t: 'Modèle', d: `Laissez vide pour le modèle par défaut de ${SUBS[p.sub].name}.`, body: s => `<div class="xf1">${xf('Modèle (facultatif)', 'model', s.model, 'text', 'par défaut')}</div>`, ok: () => true, sum: s => s.model || 'par défaut'});
   if (s.mode && s.mode !== 'local') st.push({t: 'Données des clients (RGPD)', d: p.eu ? 'Hébergement dans l’UE : pas de transfert hors de l’Union, mais le fournisseur reste un sous-traitant (art. 28).' : 'Le fournisseur devient un sous-traitant ultérieur (art. 28) ; hors de l’UE, les règles de transfert (art. 44 et suivants) s’appliquent aussi.',
@@ -859,8 +878,9 @@ document.addEventListener('click', async e => { const c = e.target.closest('[dat
   const m = e.target.closest('[data-xmodels]'); if (m) { m.disabled = true; m.textContent = 'Interrogation…'; xw.err = '';
     try { s.models = LIVEMODE ? (await aiCall({op: 'models', provider: s.mode === 'local' ? 'ollama' : p.id, key: s.key.trim(), url: s.url})).models : ['modele-demo-1', 'modele-demo-2'];
       if (!s.models.includes(s.model)) s.model = ''; } catch (err) { s.models = null; xw.err = err.message; } xRender(); return; }
-  const k = e.target.closest('[data-xcli]'); if (k) { k.disabled = true; xw.err = '';
-    try { const r = LIVEMODE ? await aiCall({op: 'cli', tool: k.dataset.xcli}) : {installed: true, version: 'démo'}; if (!r.installed) throw new Error(SUBS[k.dataset.xcli].name + ' n’est pas installé sur la machine du serveur SysLens.'); if (r.logged === false) throw new Error(SUBS[k.dataset.xcli].name + ' est installé mais pas connecté : lancez « ' + SUBS[k.dataset.xcli].login + ' ».'); s.cli = r.version; } catch (err) { xw.err = err.message; } xRender(); } });
+  const k = e.target.closest('[data-xcli]'); if (k) { k.disabled = true; const op = k.dataset.xcli;
+    if (op === 'code' && !(s.code || '').trim()) { xw.err = 'Collez d’abord le code.'; xRender(); return; }
+    aiCliPoll(p.sub, 0, op, op === 'code' ? {code: s.code.trim()} : {}); if (op === 'code') s.code = ''; } });
 document.addEventListener('change', e => { if (!xw || !xw.ai || !e.target.closest('#drawer')) return; const t = e.target, s = XS[xw.id];
   if (t.dataset.kset) { s[t.dataset.kset] = t.value; const st = xSteps(xw.id)[xw.step]; if (st && st.reset) st.reset.forEach(r => s[r] = r === 'models' ? null : ''); xOk(); }
   if (t.dataset.kmap) { s[t.dataset.kmap][t.dataset.mk] = t.value; xOk(); } });

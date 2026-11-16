@@ -104,7 +104,7 @@ em.b-crit{background:var(--crit);color:#fff}em.b-warn{background:color-mix(in sr
 .xc:hover{border-color:var(--line2);background:color-mix(in srgb,var(--panel) 92%,var(--ink))}.xc:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .xc .xtop{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .xg{width:48px;height:48px;flex:none;border-radius:12px;background:var(--panel2);border:1px solid var(--line);display:grid;place-items:center;overflow:hidden;color:var(--ink)}
-.xg b{font:600 19px 'Geist',sans-serif}.xg img{width:100%;height:100%;object-fit:contain}.xg.has{background:none;border-color:transparent}.xg.has b{display:none}.xg.has.small{background:var(--panel2);border-color:var(--line)}.xg.small img{width:28px;height:28px}.xg svg{width:24px;height:24px}
+.xg b{font:600 19px 'Geist',sans-serif}.xg img{width:100%;height:100%;object-fit:contain}.xg.has{background:none;border-color:transparent}.xg.has b{display:none}.xg.has.small{background:var(--panel2);border-color:var(--line)}.xg.small img{width:28px;height:28px}.xg svg{width:24px;height:24px}.xg.mono{position:relative}.xg.mono img{visibility:hidden}.xg.mono::after{content:'';position:absolute;inset:0;margin:auto;width:100%;height:100%;background:var(--ink);-webkit-mask:var(--logo) center/contain no-repeat;mask:var(--logo) center/contain no-repeat}.xg.small.mono::after{width:28px;height:28px}
 .xc h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}.xc .ty{display:block;font-size:12.5px;color:var(--mute);margin-top:1px}
 .xc p{margin:0;font-size:13.5px;line-height:1.45;color:var(--mute);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .xc .caps{display:flex;flex-wrap:wrap;gap:4px}.xc .caps span{font:11.5px var(--mono);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--mute)}
@@ -633,7 +633,15 @@ function extPanel(x) {
 const oDomain = () => [...(OC.company ? [['is_company','=',true]] : []), ...(OC.tags.length ? [['category_id.name','in',OC.tags]] : [])];
 const XICON = {smtp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>'};
 const xLogo = (id, name) => XICON[id] ? `<span class="xg">${XICON[id]}</span>` : `<span class="xg"><b>${esc(name[0])}</b>${LIVEMODE ? `<img src="/ext/${id}/logo" alt="" onload="xImg(this)" onerror="this.remove()">` : ''}</span>`;
-window.xImg = async i => { const p = i.parentNode; p.classList.add('has'); if (i.naturalWidth >= 64) return;
+// Logo d'une seule couleur, noir ou blanc (ChatGPT, Grok…) : repeint à la couleur du texte pour rester visible sur les deux thèmes.
+const xMono = i => { try { const c = document.createElement('canvas'); c.width = c.height = 48; const g = c.getContext('2d', {willReadFrequently: true});
+  g.drawImage(i, 0, 0, 48, 48); const d = g.getImageData(0, 0, 48, 48).data; let n = 0, dark = 0, light = 0, col = 0;
+  for (let k = 0; k < d.length; k += 4) { if (d[k + 3] < 128) continue; n++; const mx = Math.max(d[k], d[k + 1], d[k + 2]), mn = Math.min(d[k], d[k + 1], d[k + 2]);
+    if (mx - mn > 40) col++; else if (mx < 90) dark++; else if (mn > 170) light++; }
+  return n > 40 && n < 48 * 48 * .9 && col < n * .05 && (dark > n * .9 || light > n * .9); } catch (e) { return false; } };
+window.xImg = async i => { const p = i.parentNode; p.classList.add('has');
+  if (xMono(i)) { p.classList.add('mono'); p.style.setProperty('--logo', `url("${i.currentSrc || i.src}")`); }
+  if (i.naturalWidth >= 64) return;
   try { const r = await fetch(i.src, {cache: 'no-store'}); if (!/svg/.test(r.headers.get('content-type') || '')) p.classList.add('small'); } catch (e) {} };
 const XACT = {on:'Réglages', config:'Configurer', soon:'Bientôt'};
 const XSEC = [['Constructeur','Constructeurs','Lisent les logs et l’état des équipements'],['CRM / ERP','CRM et ERP','Fournissent les clients et reçoivent les tickets'],['Notification','Notifications','Préviennent l’astreinte']];

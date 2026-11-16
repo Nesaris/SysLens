@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.3.4",
+    "date": "2026-11-16",
+    "points": [
+      "Les logos d’une seule couleur (comme celui de ChatGPT) prennent la couleur du texte : ils restent visibles en thème sombre comme en thème clair."
+    ]
+  },
+  {
     "version": "0.3.3",
     "date": "2026-11-16",
     "points": [

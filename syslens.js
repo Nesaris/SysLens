@@ -17,6 +17,19 @@ const COL = { critique: '\x1b[41;97m', grave: '\x1b[33m', moyen: '\x1b[93m', ben
 const REF_RAW = JSON.parse(fs.readFileSync(path.join(__dirname, 'referentiel.json'), 'utf8')).entries;
 const mkRe = s => s ? new RegExp(s, 'i') : null;
 const REF = REF_RAW.map(e => ({ ...e, cat: mkRe(e.cat), re: mkRe(e.re), priv: mkRe(e.priv) }));
+// État des incidents décidé par un admin (acquitté, clos), partagé entre navigateurs : logs/incidents-etat.json
+const INC_FILE = path.join(DIR, 'incidents-etat.json'), INC_KEEP = 400 * 864e5;
+let incEtat = {}; try { incEtat = JSON.parse(fs.readFileSync(INC_FILE, 'utf8')) || {}; } catch (e) {}
+function incApi(b) {
+  if (!b || typeof b.key !== 'string' || !b.key || b.key.length > 300) throw new Error('Clé d’incident invalide.');
+  if (!['ouvert', 'acquitté', 'clos'].includes(b.st)) throw new Error('Statut inconnu.');
+  const snap = b.snap && typeof b.snap === 'object' ? Object.fromEntries(['sig', 'cli', 'cliName', 'dev', 'k', 's', 'lv', 'n', 'last'].filter(k => b.snap[k] !== undefined).map(k => [k, typeof b.snap[k] === 'number' ? b.snap[k] : String(b.snap[k]).slice(0, 200)])) : undefined;
+  if (b.st === 'ouvert') delete incEtat[b.key]; else incEtat[b.key] = { st: b.st, t: Date.now(), ...(snap ? { snap } : {}) };
+  const lim = Date.now() - INC_KEEP; for (const [k, v] of Object.entries(incEtat)) if (v.t < lim) delete incEtat[k];
+  const keys = Object.keys(incEtat); if (keys.length > 20000) keys.sort((a, c) => incEtat[a].t - incEtat[c].t).slice(0, keys.length - 20000).forEach(k => delete incEtat[k]);
+  try { fs.writeFileSync(INC_FILE + '.tmp', JSON.stringify(incEtat)); fs.renameSync(INC_FILE + '.tmp', INC_FILE); } catch (e) { throw new Error('Écriture impossible : ' + e.message); }
+  return { ok: true, etat: incEtat };
+}
 const LEARN_FILE = path.join(DIR, 'ref-appris.json'); let learned = { types: {}, bases: {} };
 function loadLearned() { try { const j = JSON.parse(fs.readFileSync(LEARN_FILE, 'utf8')); learned = { types: j.types || {}, bases: j.bases || {} }; } catch (e) {} }
 loadLearned();
@@ -442,13 +455,18 @@ const webSrv = http.createServer((q, r) => {
     q.on('end', async () => { let install = false; try { install = !!JSON.parse(body).install; } catch (e) {} json(await checkUpdate(install)); }); }
   else if (q.url.startsWith('/api/events')) { const since = +(new URL(q.url, 'http://x').searchParams.get('since') || 0); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); const evs = []; for (let i = hist.length - 1; i >= 0 && hist[i].id > since && evs.length < 5000; i--) evs.push(hist[i]); evs.reverse();
     r.end(JSON.stringify({ version: VERSION, stats: { rate: lastRate, total, workers: WORKERS, devices: devices.size, incidents: incidents.size }, counts: [...counts.values()].filter(c => c.t >= Date.now() - 26 * 3600e3), devices: [...devices.values()], events: evs })); }
-  else if (q.url.startsWith('/api/incidents')) { const lv = new URL(q.url, 'http://x').searchParams.get('level'); const out = []; for (const I of incidents.values()) if (!lv || I.level === lv) out.push(I);
+  else if (q.url.startsWith('/api/incidents') && !q.url.startsWith('/api/incidents-etat')) { const lv = new URL(q.url, 'http://x').searchParams.get('level'); const out = []; for (const I of incidents.values()) if (!lv || I.level === lv) out.push(I);
     out.sort((a, b) => b.last - a.last); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ total: out.length, incidents: out.slice(0, 2000) })); }
   else if (q.url.startsWith('/console')) { fs.readFile(path.join(__dirname, 'console.html'), (err, b) => { r.writeHead(err ? 404 : 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); r.end(err ? 'console.html introuvable' : b); }); }
   else if (q.url === '/api/ai' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 8192) q.destroy(); });
     q.on('end', async () => { try { json(200, await aiApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
+  else if (q.url === '/api/incidents-etat' && q.method === 'GET') { r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ etat: incEtat })); }
+  else if (q.url === '/api/incidents-etat' && q.method === 'POST') {
+    const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
+    if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 4096) q.destroy(); });
+    q.on('end', () => { try { json(200, incApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
   else if (q.url === '/api/referentiel') { r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(refPayload())); }
   else if (q.url === '/api/ref' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };

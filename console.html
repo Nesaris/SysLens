@@ -256,7 +256,7 @@ tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation
 :root[data-frost=on] .side{border-right-color:color-mix(in srgb,#fff 8%,transparent)!important}
 @media (prefers-reduced-transparency:reduce){:root[data-frost=on] :is(.panel,.card,.side,.top,.drawer,.pick){background:var(--panel)!important;backdrop-filter:none}}
 :root[data-design=pilules]{--bg:light-dark(#f3f4f4,#000);--side:var(--bg);--panel:light-dark(#fff,#101211);--panel2:light-dark(#eceeed,#171b19);--line:light-dark(#e1e4e3,#1d2220);--line2:light-dark(#d0d5d3,#262c29)}
-:root[data-design=pilules] .app,:root[data-design=pilules] .app.mini{grid-template-columns:minmax(0,1fr)}
+:root[data-design=pilules] .app,:root[data-design=pilules] .app.mini{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr;align-content:start}
 :root[data-design=pilules] .side{position:sticky;top:0;z-index:5;height:auto;flex-direction:row;align-items:center;gap:12px;padding:14px clamp(14px,2.4vw,32px);border-right:0;overflow:visible;background:color-mix(in srgb,var(--bg) 88%,transparent)}
 :root[data-design=pilules] :is(.fold,.side .demo,.health,.me>div){display:none}
 :root[data-design=pilules] .brand{flex:none}
@@ -506,7 +506,21 @@ function scoreOf(e, count) {
   s = Math.min(100, Math.max(floor, s, 0)); return {s, parts, floor};
 }
 // --- incidents = regroupements (cahier § 5)
+// état des incidents (acquitté, clos) : sur le serveur en mode réel, dans ce navigateur en démo
 let incState = {};
+if (!LIVEMODE) try { incState = JSON.parse(localStorage.getItem('syslens-incidents') || '{}') || {}; } catch (e) {}
+async function incLoad() { try { const j = await (await fetch('/api/incidents-etat', {cache: 'no-store'})).json(); if (j && j.etat) { const ch = JSON.stringify(j.etat) !== JSON.stringify(incState); incState = j.etat; if (ch) render(); } } catch (e) {} }
+async function incSet(key, st, snap) {
+  const prev = incState[key];
+  if (st === 'ouvert') delete incState[key]; else incState[key] = {st, t: Date.now(), ...(snap ? {snap} : {})};
+  if (!LIVEMODE) { try { localStorage.setItem('syslens-incidents', JSON.stringify(incState)); } catch (e) {} return; }
+  try { const r = await fetch('/api/incidents-etat', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({key, st, snap})}); const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || r.status); incState = j.etat; }
+  catch (e) { if (prev) incState[key] = prev; else delete incState[key]; throw e; } }
+const incSnap = i => ({sig: i.last.k === 'silence' ? 'Équipement silencieux' : (CAT[i.last.k] || {}).sig || i.last.k, cli: i.last.cli, cliName: cName(i.last.cli), dev: i.last.dev, k: i.last.k, s: i.sc.s, lv: i.lv, n: i.list.length, last: i.last.t});
+const incStatus = (key, back, backT, lastT) => { const s = incState[key];
+  if (s && s.st === 'clos') return lastT > s.t ? {st: 'ouvert', reopened: s.t} : {st: 'clos', closedAt: s.t, by: 'admin'};
+  if (back) return {st: 'clos', closedAt: backT, by: 'auto'};
+  return s ? {st: s.st, ackAt: s.t} : {st: 'ouvert'}; };
 function incidents() {
   const g = {};
   for (const e of events) { const key = e.cli + '|' + e.dev + '|' + e.k + '|' + (isPub(e.src) ? e.src : ''); (g[key] ||= []).push(e); }
@@ -518,11 +532,11 @@ function incidents() {
     if (lv === 'benin' || (CAT[last.k] && CAT[last.k].quiet) || last.k === 'stp' || last.k === 'dfs' || last.k === 'uos-deny') continue;
     if (last.k === 'auth-ko' && list.length < 20) continue;
     const back = up[last.dev + '|' + last.k] > last.t;   // revenu tout seul : clos automatiquement
-    out.push({key, list, last, sc, lv, auto: back, st: incState[key] || (back ? 'clos' : 'ouvert')});
+    out.push({key, list, last, sc, lv, auto: back, ...incStatus(key, back, up[last.dev + '|' + last.k], last.t)});
   }
   for (const d of devices) { const lim = SILENCE[d.fam]; if (d.last > lim) {
     const key = 'silence|' + d.id, sc = {s: 66, parts: [['Règle : équipement silencieux (seuil ' + lim + ' min)', 66]], floor: 0};
-    out.push({key, list: [], last: {t: NOW - d.last * 60e3, dev: d.id, cli: d.cli, fam: d.fam, k: 'silence', msg: 'Aucun log depuis ' + d.last + ' min', src: ''}, sc, lv: 'grave', st: incState[key] || 'ouvert'}); } }
+    out.push({key, list: [], last: {t: NOW - d.last * 60e3, dev: d.id, cli: d.cli, fam: d.fam, k: 'silence', msg: 'Aucun log depuis ' + d.last + ' min', src: ''}, sc, lv: 'grave', ...incStatus(key, false, 0, NOW - d.last * 60e3)}); } }
   return out.sort((a,b) => b.sc.s - a.sc.s);
 }
 // --- état d'affichage
@@ -637,10 +651,21 @@ V.overview = () => {
     <section class="card"><h3>Derniers événements <a href="#incidents">Tout</a></h3><ul class="feed">${feed || '<li class="empty">Rien à signaler.</li>'}</ul></section>
   </aside></div>`;
 };
+let incTab = 'cours';
+function archived() { const all = byCli(incidents()), seen = new Set(all.map(i => i.key)), out = all.filter(i => i.st === 'clos').map(i => ({key: i.key, live: true, s: i.sc.s, lv: i.lv, sig: incSnap(i).sig, cli: cName(i.last.cli), dev: i.last.dev, n: i.list.length, t: i.closedAt || i.last.t, by: i.by}));
+  for (const [key, v] of Object.entries(incState)) if (v.st === 'clos' && !seen.has(key) && v.snap && (!fCli || v.snap.cli === fCli)) out.push({key, live: false, s: v.snap.s, lv: v.snap.lv, sig: v.snap.sig, cli: v.snap.cliName || v.snap.cli, dev: v.snap.dev, n: v.snap.n, t: v.t, by: 'admin'});
+  return out.sort((a, b) => b.t - a.t); }
+const whenFull = t => new Date(t).toLocaleString('fr-FR', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+function archRows(list) {
+  if (!list.length) return `<p class="empty">Aucun incident archivé${incFilter ? ' pour ce niveau' : ''}.</p>`;
+  return `<table class="stack"><thead><tr><th>Score</th><th>Incident</th><th>Client</th><th>Équipement</th><th class="num">Évén.</th><th>Clos</th><th>Par</th><th></th></tr></thead><tbody>` +
+    list.map(a => `<tr${a.live ? ` class="click" data-inc="${esc(a.key)}"` : ''}><td data-l="Score">${scChip(a.s)}</td><td data-l="Incident">${esc(a.sig)}</td><td data-l="Client">${esc(a.cli)}</td><td data-l="Équipement" class="mono">${esc(a.dev)}</td><td data-l="Événements" class="num">${a.n || '—'}</td><td data-l="Clos">${whenFull(a.t)}</td><td data-l="Par">${a.by === 'auto' ? '<span class="tag ok">retour à la normale</span>' : 'un admin'}</td><td class="r">${a.by === 'auto' ? '' : `<button class="btn" data-reopen="${esc(a.key)}">Rouvrir</button>`}</td></tr>`).join('') + '</tbody></table>';
+}
 V.incidents = () => {
-  const inc = byCli(incidents()).filter(i => !incFilter || i.lv === incFilter);
-  return `<h1>Incidents</h1><p class="sub">Regroupés par équipement, type et source ; triés par score. Cliquer pour le détail du calcul et l'avis de l'IA.</p>
-  <div class="bar"><select id="incLv" aria-label="Niveau"><option value="">Tous les niveaux</option>${['critique','grave','moyen'].map(l => `<option value="${l}" ${incFilter === l ? 'selected' : ''}>${LNAME[l]}</option>`).join('')}</select></div><section class="panel">${incRows(inc)}</section>`;
+  const all = byCli(incidents()), cur = all.filter(i => i.st !== 'clos' && (!incFilter || i.lv === incFilter)), arch = archived().filter(a => !incFilter || a.lv === incFilter), nCur = all.filter(i => i.st !== 'clos').length, nArch = archived().length;
+  return `<h1>Incidents</h1><p class="sub">${incTab === 'archive' ? 'Incidents clos : par un admin, ou revenus seuls à la normale. Un incident clos qui reçoit un nouvel événement repasse en cours.' : 'Regroupés par équipement, type et source ; triés par score. Cliquer pour le détail du calcul et l\'avis de l\'IA.'}</p>
+  <div class="bar"><div class="seg" role="tablist" aria-label="Incidents"><button type="button" role="tab" data-ctab="1" data-itab="cours" class="${incTab === 'cours' ? 'on' : ''}" aria-selected="${incTab === 'cours'}">En cours · ${nCur}</button><button type="button" role="tab" data-ctab="1" data-itab="archive" class="${incTab === 'archive' ? 'on' : ''}" aria-selected="${incTab === 'archive'}">Archivés · ${nArch}</button></div>
+  <select id="incLv" aria-label="Niveau"><option value="">Tous les niveaux</option>${['critique','grave','moyen'].map(l => `<option value="${l}" ${incFilter === l ? 'selected' : ''}>${LNAME[l]}</option>`).join('')}</select></div><section class="panel">${incTab === 'archive' ? archRows(arch) : incRows(cur)}</section>`;
 };
 V.logs = () => `<h1>Flux de logs</h1><p class="sub">Format commun de l'adaptateur Zyxel ; cliquer une ligne pour voir la ligne brute et les champs extraits.</p>
   <div class="bar"><input type="search" id="lq" placeholder="Rechercher (IP, équipement, message)" value="${esc(logFilter.q)}" aria-label="Recherche">
@@ -1053,7 +1078,8 @@ function openInc(key) {
   <h2 style="margin-top:20px">Avis de l'IA</h2>${aiBlock}
   ${c ? `<h2 style="margin-top:20px">Référentiel</h2><dl class="kv"><dt>Signification</dt><dd>${esc(c.mean)}</dd><dt>Action</dt><dd>${esc(c.act)}</dd><dt>Source</dt><dd>${esc(c.src)}</dd></dl>` : ''}
   ${i.list.length ? `<h2 style="margin-top:20px">Événements liés (${i.list.length})</h2><div class="raw">${i.list.slice(-6).map(e => esc(e.raw)).join('\n')}</div>` : ''}
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px"><button class="btn" data-st="acquitté">Acquitter</button><button class="btn" data-st="clos">Clore</button><button class="btn p" id="odoo">Créer le ticket Odoo</button></div><p id="dMsg" class="sub" style="margin-top:8px"></p>`;
+  ${i.reopened ? `<p class="note" style="margin-top:16px">Rouvert : nouvel événement après la clôture du ${whenFull(i.reopened)}.</p>` : ''}${i.st === 'clos' ? `<p class="note" style="margin-top:16px">Archivé le ${whenFull(i.closedAt)}${i.by === 'auto' ? ' : revenu seul à la normale.' : ' par un admin.'}</p>` : i.st === 'acquitté' ? `<p class="note" style="margin-top:16px">Acquitté le ${whenFull(i.ackAt)}.</p>` : ''}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${i.st === 'clos' ? (i.by === 'auto' ? '' : `<button class="btn" data-st="ouvert">Rouvrir</button>`) : `${i.st === 'acquitté' ? '' : `<button class="btn" data-st="acquitté">Acquitter</button>`}<button class="btn" data-st="clos">Clore et archiver</button><button class="btn p" id="odoo">Créer le ticket Odoo</button>`}</div><p id="dMsg" class="sub" style="margin-top:8px"></p>`;
   $('#drawer').classList.remove('pop'); $('#drawer').classList.add('open'); $('#veil').classList.add('on'); $('#drawer').dataset.key = key; $('#dClose').focus();
 }
 function closeInc() { if (xw) xw.polling = false; $('#drawer').classList.remove('open'); $('#veil').classList.remove('on'); }
@@ -1086,10 +1112,14 @@ document.addEventListener('click', async e => {
   const t = e.target, row = t.closest('[data-inc]'), ev = t.closest('[data-ev]'), lv = t.closest('[data-lv]');
   if (lv) incFilter = lv.dataset.lv === 'benin' ? '' : lv.dataset.lv;
   if (lv && lv.dataset.lv === 'benin') { e.preventDefault(); logFilter.lv = 'benin'; location.hash = 'logs'; return; }
+  if (t.dataset.reopen) { t.disabled = true; try { await incSet(t.dataset.reopen, 'ouvert'); } catch (err) { t.disabled = false; return; } render(); return; }
   if (row) return openInc(row.dataset.inc);
   if (ev) { openRow = openRow === +ev.dataset.ev ? null : +ev.dataset.ev; $('#logbox').innerHTML = logTable(); return; }
   if (t.id === 'dClose' || t.id === 'veil') { if ($('#modal').classList.contains('on')) { closeModal(); render(); } else closeInc(); return; }
-  if (t.dataset.st) { incState[$('#drawer').dataset.key] = t.dataset.st; $('#dMsg').textContent = 'Statut : ' + t.dataset.st + ' (tracé à votre nom).'; render(); return; }
+  if (t.dataset.st) { const key = $('#drawer').dataset.key, i = incidents().find(x => x.key === key), st = t.dataset.st; t.disabled = true;
+    try { await incSet(key, st, st === 'clos' && i ? incSnap(i) : undefined); } catch (err) { t.disabled = false; $('#dMsg').textContent = 'Non enregistré : ' + err.message; return; }
+    if (st === 'clos') { closeInc(); render(); return; } render(); openInc(key); return; }
+  if (t.dataset.itab) { incTab = t.dataset.itab; render(); return; }
   if (t.id === 'odoo') { $('#dMsg').textContent = 'Démo : en production, ticket helpdesk.ticket créé par svc-siem avec x_incident_ref = ' + $('#drawer').dataset.key.split('|').slice(0,3).join('-') + '.'; return; }
   if (t.id === 'lpause') { paused = !paused; render(); return; }
   if (t.dataset.maint) { const d = devices.find(x => x.id === t.dataset.maint); d.maint = !d.maint; render(); return; }
@@ -1351,7 +1381,7 @@ async function refClassify(auto) { if (!ai.saved) { if (!auto) { refMsg = 'Confi
   try { const j = await refPost({op: 'classify', ai: aiCfg(), max: 25}); aiLog.push({t: Date.now(), cli: 'cli-test', inc: 'Classement de ' + j.proposed + ' type(s) de log', p: ai.provName(), n: '—'});
     refMsg = j.proposed + ' type(s) classé(s) par l’IA, à valider ci-dessous' + (j.left ? ` (${j.left} encore en file)` : '') + '.'; } catch (e) { refMsg = 'IA : ' + e.message; }
   await refLoad(); render(); }
-if (LIVEMODE) { refLoad(); setInterval(refLoad, 30e3); setInterval(() => refClassify(true), 10 * 60e3);
+if (LIVEMODE) { incLoad(); setInterval(incLoad, 30e3); refLoad(); setInterval(refLoad, 30e3); setInterval(() => refClassify(true), 10 * 60e3);
   updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; refLoad().finally(() => { livePoll(); setInterval(livePoll, 3000); }); }
 render();
 }

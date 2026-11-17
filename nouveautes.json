@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.6.1",
+    "date": "2026-11-17",
+    "points": [
+      "Incidents : deux onglets, En cours et Archivés. « Clore et archiver » range l'incident dans Archivés, avec la date et qui l'a clos ; les incidents revenus seuls à la normale y vont aussi.",
+      "Un incident archivé qui reçoit un nouvel événement repasse en cours, avec la mention « Rouvert ». Bouton « Rouvrir » dans Archivés.",
+      "L'état des incidents (acquitté, clos) est gardé par le serveur dans logs/incidents-etat.json : il survit au redémarrage et il est le même dans tous les navigateurs.",
+      "Design Pilules : la barre du haut ne s'étire plus sur les pages courtes."
+    ]
+  },
+  {
     "version": "0.6.0",
     "date": "2026-11-17",
     "points": [

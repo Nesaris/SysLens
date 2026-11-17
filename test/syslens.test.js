@@ -300,3 +300,20 @@ test('compteurs : tous les logs comptés par tranche de 5 min, gardés au redém
   assert.equal(j.counts.reduce((a, c) => a + c.n, 0), 41, 'compteurs relus');
   assert.ok(j.events.some(e => /Port 4 is down/.test(e.msg)), 'événement d’il y a une heure (fichier d’hier) rechargé');
 });
+
+test('incidents : clos et acquittés gardés par le serveur après redémarrage, réouverture, refus des autres sites', async () => {
+  const json = { 'content-type': 'application/json' }, dossier = installer();
+  let s = await demarrer({}, dossier);
+  const post = (corps, entetes = json) => requete(s.web, '/api/incidents-etat', { methode: 'POST', entetes, corps: JSON.stringify(corps) });
+  let r = await post({ key: 'cli-test|fw-01|malware|', st: 'clos', snap: { sig: 'Fichier malveillant détecté', cli: 'cli-test', s: 90, lv: 'critique', n: 2, last: 1 } });
+  assert.equal(r.statut, 200, r.texte);
+  r = await post({ key: 'cli-test|sw-01|loop|', st: 'acquitté' }); assert.equal(r.statut, 200);
+  assert.equal((await post({ key: 'x', st: 'supprimé' })).statut, 400);
+  assert.equal((await post({ key: 'x', st: 'clos' }, { ...json, origin: 'https://exemple.com' })).statut, 403);
+  s.proc.kill(); await attendre(300); s = await demarrer({}, dossier);
+  let e = (await requete(s.web, '/api/incidents-etat')).json.etat;
+  assert.equal(e['cli-test|fw-01|malware|'].st, 'clos'); assert.equal(e['cli-test|fw-01|malware|'].snap.sig, 'Fichier malveillant détecté');
+  assert.equal(e['cli-test|sw-01|loop|'].st, 'acquitté'); assert.equal(e.x, undefined);
+  r = await post({ key: 'cli-test|fw-01|malware|', st: 'ouvert' }); assert.equal(r.json.etat['cli-test|fw-01|malware|'], undefined);
+  e = (await requete(s.web, '/api/incidents')).json; assert.ok(Array.isArray(e.incidents), 'la route /api/incidents répond toujours');
+});

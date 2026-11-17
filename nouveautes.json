@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.6.0",
+    "date": "2026-11-17",
+    "points": [
+      "Nouvelle page Réglages (Paramètres › Réglages) pour choisir l'apparence de la console, gardée dans le navigateur.",
+      "Deux designs au choix : Classique (menu à gauche) et Pilules (fond noir, menu en pilules en haut, grands titres).",
+      "Mode Système, Sombre ou Clair.",
+      "Verre givré activable : cartes et menus en verre dépoli, avec fond d'écran au choix (Aurore, Braise, Nuit, Acier ou ton image), flou et assombrissement réglables."
+    ]
+  },
+  {
     "version": "0.5.2",
     "date": "2026-11-17",
     "points": [

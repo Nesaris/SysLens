@@ -242,9 +242,70 @@ main > h1{margin-bottom:4px}main > .sub{margin-bottom:18px}
 @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation-fill-mode:both}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.kpis .card{display:grid;gap:6px}.kpis .big{font-size:30px}
-.seg button[data-ctab],.seg button[data-mode]{font-family:'Geist',sans-serif;font-size:13.5px}td .btn{min-height:34px;padding:5px 12px}
+.seg button[data-ctab],.seg button[data-mode],.seg button[data-lookmode]{font-family:'Geist',sans-serif;font-size:13.5px}td .btn{min-height:34px;padding:5px 12px}
 .pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
 .link{background:none;border:0;color:var(--acc);cursor:pointer;padding:6px 0;font-size:14px}
+/* ---------- Apparence : fond d'écran, verre givré, thème « Pilules » ---------- */
+#wall,#dim{position:fixed;inset:0;pointer-events:none;z-index:0}
+#wall{inset:-60px;background:#000 center/cover no-repeat;display:none}
+:root[data-wall=on] #wall,:root[data-wall=on] #dim{display:block}
+:root[data-wall=on] body{background:transparent}
+.app{position:relative;z-index:1}
+:root[data-wall=on] .top{background:transparent}
+:root[data-frost=on] :is(.panel,.card,.side,.top,.drawer,.pick,.scope,.search,.bell,.seg,.health,.updbar,.ext>*,.xc){background:color-mix(in srgb,var(--panel) 52%,transparent)!important;-webkit-backdrop-filter:blur(24px) saturate(150%);backdrop-filter:blur(24px) saturate(150%);border-color:color-mix(in srgb,#fff 11%,transparent)!important}
+:root[data-frost=on] .side{border-right-color:color-mix(in srgb,#fff 8%,transparent)!important}
+@media (prefers-reduced-transparency:reduce){:root[data-frost=on] :is(.panel,.card,.side,.top,.drawer,.pick){background:var(--panel)!important;backdrop-filter:none}}
+:root[data-design=pilules]{--bg:light-dark(#f3f4f4,#000);--side:var(--bg);--panel:light-dark(#fff,#101211);--panel2:light-dark(#eceeed,#171b19);--line:light-dark(#e1e4e3,#1d2220);--line2:light-dark(#d0d5d3,#262c29)}
+:root[data-design=pilules] .app,:root[data-design=pilules] .app.mini{grid-template-columns:minmax(0,1fr)}
+:root[data-design=pilules] .side{position:sticky;top:0;z-index:5;height:auto;flex-direction:row;align-items:center;gap:12px;padding:14px clamp(14px,2.4vw,32px);border-right:0;overflow:visible;background:color-mix(in srgb,var(--bg) 88%,transparent)}
+:root[data-design=pilules] :is(.fold,.side .demo,.health,.me>div){display:none}
+:root[data-design=pilules] .brand{flex:none}
+:root[data-design=pilules] .scope{width:auto;flex:none;border-radius:999px;min-height:44px;padding:6px 16px}
+:root[data-design=pilules] nav{flex-direction:row;align-items:center;gap:6px;margin:0 auto;overflow-x:auto;scrollbar-width:none;padding:2px}
+:root[data-design=pilules] .grp{flex-direction:row;gap:6px}
+:root[data-design=pilules] .grp>p{display:none}
+:root[data-design=pilules] nav a{border-radius:999px;padding:8px 16px;min-height:40px;background:var(--panel2);color:color-mix(in srgb,var(--ink) 82%,transparent);white-space:nowrap}
+:root[data-design=pilules] nav a:hover{background:var(--line2)}
+:root[data-design=pilules] nav a svg{display:none}
+:root[data-design=pilules] nav a.on{background:var(--ink);color:var(--bg)}
+:root[data-design=pilules] nav a.on::before{display:none}
+:root[data-design=pilules] nav a em{margin-left:2px}
+:root[data-design=pilules] nav a{flex:none;padding:8px 13px;font-size:14px}:root[data-design=pilules] .grp{flex:none;gap:4px}:root[data-design=pilules] nav{gap:4px}:root[data-design=pilules] .brand .word{display:none}@media(max-width:1700px){:root[data-design=pilules] .brand>div{display:none}}
+:root[data-design=pilules] .top{background:transparent!important;-webkit-backdrop-filter:none;backdrop-filter:none;border:0!important;padding-top:4px}:root[data-design=pilules] nav a span{overflow:visible}
+:root[data-design=pilules] .scope>span,:root[data-design=pilules] .scope kbd{display:none}:root[data-design=pilules] .scope{min-height:40px;padding:6px 14px;display:flex;align-items:center}
+:root[data-design=pilules] nav{mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent)}
+:root[data-design=pilules] .grp:last-child{margin-left:8px}
+:root[data-design=pilules] .grp:last-child a{width:44px;height:44px;padding:0;justify-content:center;border-radius:50%}
+:root[data-design=pilules] .grp:last-child a span{display:none}
+:root[data-design=pilules] .grp:last-child a svg{display:block;width:17px;height:17px}
+:root[data-design=pilules] .grp:last-child a em{position:absolute;top:-4px;right:-4px}
+:root[data-design=pilules] .me{flex:none;padding:0}
+:root[data-design=pilules] .top{border-bottom:0;background:transparent;position:static}
+:root[data-design=pilules] h1{font-size:clamp(32px,3.4vw,46px);font-weight:500;letter-spacing:-.035em}
+:root[data-design=pilules] :is(.card,.panel){border-radius:18px}
+:root[data-design=pilules] :is(.btn,.seg,.seg button,.search,.pill,.scope){border-radius:999px}
+:root[data-design=pilules] .bell{border-radius:50%;width:44px;height:44px}
+:root[data-design=pilules] .btn.p{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+:root[data-design=pilules] .seg button.on{background:var(--ink);color:var(--bg)}
+@media(max-width:1420px){:root[data-design=pilules] .side{flex-wrap:wrap;row-gap:10px}:root[data-design=pilules] nav{order:3;width:100%;margin:0}:root[data-design=pilules] .me{margin-left:auto}}
+@media(max-width:980px){:root[data-design=pilules] .side{position:static}}
+/* page Réglages */
+.looks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.lk{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:14px;border:1px solid var(--line2);background:var(--panel2);cursor:pointer;text-align:left;color:var(--ink)}
+.lk[aria-checked=true]{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.lk .mk{height:96px;border-radius:10px;background:#050807;position:relative;overflow:hidden;border:1px solid #1d2220}
+.mk.cl::before{content:"";position:absolute;left:0;top:0;bottom:0;width:24%;background:#0b100e;border-right:1px solid #1d2220}
+.mk.cl::after{content:"";position:absolute;left:30%;right:8%;top:16px;height:26px;border-radius:5px;background:#101614;box-shadow:0 34px 0 #101614}
+.mk.pi{background:#000}.mk.pi::before{content:"";position:absolute;left:50%;top:10px;transform:translateX(-50%);width:58%;height:12px;border-radius:9px;background:repeating-linear-gradient(90deg,#1c1f1e 0 18%,transparent 18% 21%)}
+.mk.pi::after{content:"";position:absolute;left:8%;right:8%;top:36px;height:46px;border-radius:12px;background:#121413;box-shadow:inset 0 0 0 1px #1d2220}
+.walls{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.wl{display:flex;flex-direction:column;gap:6px;background:none;border:0;padding:0;cursor:pointer;color:var(--ink);font-size:13px;text-align:left}
+.wl i{display:block;height:64px;border-radius:10px;border:1px solid var(--line2)}
+.wl[aria-checked=true] i{outline:2px solid var(--acc);outline-offset:2px}
+.rng{display:grid;grid-template-columns:150px minmax(0,1fr) 56px;gap:14px;align-items:center;font-size:14px}
+.rng output{font:13px var(--mono);color:var(--mute);text-align:right}
+.rng input{accent-color:var(--acc)}
+@media(max-width:780px){.looks{grid-template-columns:1fr}.walls{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (prefers-reduced-motion:reduce){.prog .p-run i{animation:none;border-top-color:var(--line2)}tr.newrow td{animation:none}}
 @media(max-width:640px){.kpis{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){.drawer,.drawer.pop,.drawer.pop.open{transition:none}.xwait i{animation:none}}
@@ -266,6 +327,7 @@ tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation
 <symbol id="i-docs" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 1.75h6l3 3v9.5h-9Z"/><path d="M9.5 1.75v3h3M5.75 8.5h4.5M5.75 11h3" stroke-linecap="round"/></g></symbol>
 <symbol id="i-ai" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5" stroke-linecap="round"/></g></symbol>
 <symbol id="i-admin" viewBox="0 0 16 16"><path d="M8 1.5 13.75 3.6v3.9c0 3.2-2.4 5.9-5.75 7-3.35-1.1-5.75-3.8-5.75-7V3.6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+<symbol id="i-settings" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4.5h7M12.5 4.5H14M2 11.5h2M7.5 11.5H14"/><circle cx="10.75" cy="4.5" r="1.75"/><circle cx="5.75" cy="11.5" r="1.75"/></g></symbol>
 <symbol id="i-chev" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="i-extensions" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.75v3M10 1.75v3"/><path d="M4.25 4.75h7.5v2.5a3.75 3.75 0 0 1-7.5 0Z"/><path d="M8 11v3.25"/></g></symbol>
 <symbol id="i-clients" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 14.25V2.75h7v11.5M9.5 6.25h4v8"/><path d="M1.5 14.25h13M5 5.25h1.5M5 8h1.5M5 10.75h1.5" stroke-linecap="round"/></g></symbol>
@@ -273,6 +335,7 @@ tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation
 <symbol id="i-bell" viewBox="0 0 16 16"><path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.25 1.25H2.75ZM6.5 14.25h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="i-clock" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.5V8l2.5 1.5"/></g></symbol>
 </defs></svg>
+<div id="wall" aria-hidden="true"></div><div id="dim" aria-hidden="true"></div>
 <div class="app">
   <aside class="side">
     <div class="brand"><svg class="logo" width="28" height="28" viewBox="0 0 224 224" role="img" aria-label="SysLens"><path fill="currentColor" d="M183 24H67A53 53 0 0 0 67 130H157A17 17 0 0 1 157 164H67V200H157A53 53 0 0 0 157 94H67A17 17 0 0 1 67 60H183Z"/><path fill="#E8590C" d="M15 182A18 18 0 1 0 51 182A18 18 0 1 0 15 182Z"/></svg><div><svg class="word" viewBox="296 58 522 132" height="21" aria-hidden="true"><path fill="currentColor" d="M337.3 161.96C361.15 161.96 375.7 150.46 375.7 131.81C375.7 117.26 366.54 108.75 345.88 104.4L336.59 102.38C324.7 99.79 319.89 96.47 319.89 90.5C319.89 83.41 326.85 78.48 336.72 78.48C347.11 78.48 353.94 84.13 354.65 93.29H373.36C372.78 73.8 358.94 62.04 336.66 62.04C314.63 62.04 299.88 73.86 299.88 91.47C299.88 105.31 309.17 114.21 328.34 118.37L338.54 120.58C350.82 123.24 355.89 126.88 355.89 133.11C355.89 140.65 348.54 145.52 337.43 145.52C325.03 145.52 317.55 139.29 317.3 128.63H298C298 149.68 312.49 161.96 337.3 161.96ZM388.69 187.56H401.36C412.02 187.56 418.64 182.42 423 170.99L453.2 91.8H433.33L421.76 125.71C420.14 130.58 418.64 135.58 417.15 140.52C415.72 135.58 414.16 130.65 412.6 125.71L401.1 91.8H381.03L407.4 160.14L405.52 165.14C403.7 170.4 401.95 172.42 397.4 172.42H388.69ZM487.9 162.09C505.83 162.09 518.3 153.12 518.3 139.42C518.3 129.35 511.93 123.37 498.1 120.64L485.1 118.11C479.84 117 476.79 114.73 476.79 111.22C476.79 107.13 480.75 103.94 487.31 103.94C494.07 103.94 498.75 108.04 498.88 113.56H516.61C516.22 99.27 504.53 90.37 486.79 90.37C468.93 90.37 457.69 98.94 457.69 111.94C457.69 122.59 464.77 129.35 478.09 131.94L490.11 134.28C495.69 135.39 499.01 137.53 499.01 141.17C499.01 145.39 494.65 148.38 487.57 148.38C480.1 148.38 475.68 144.81 474.97 138.83H456.13C457.3 153.58 470.1 162.09 487.9 162.09ZM529.02 160.4H593.01V143.25H549.03V63.6H529.02ZM633.94 161.96C650.57 161.96 663.83 152.47 666.36 138.83H648.88C647.13 144.16 642 147.6 634.53 147.6C624.46 147.6 618.61 141.04 618.28 130.91H667.07V125.77C667.07 104.85 653.5 90.24 633.29 90.24C613.61 90.24 599.64 105.24 599.64 126.16C599.64 147.02 613.15 161.96 633.94 161.96ZM618.41 118.69C619.45 110.12 625.11 104.79 633.68 104.79C642.32 104.79 648.04 110.12 649.01 118.69ZM696.5 122.26C696.5 111.61 702.03 106.87 709.95 106.87C717.94 106.87 722.56 111.74 722.56 120.97V160.4H741.66V117.46C741.66 100.11 732.24 90.37 717.62 90.37C707.74 90.37 700.79 94.78 696.18 102.58V91.8H677.34V160.4H696.5ZM783.75 162.09C801.68 162.09 814.16 153.12 814.16 139.42C814.16 129.35 807.79 123.37 793.95 120.64L780.96 118.11C775.7 117 772.64 114.73 772.64 111.22C772.64 107.13 776.61 103.94 783.17 103.94C789.93 103.94 794.6 108.04 794.73 113.56H812.47C812.08 99.27 800.39 90.37 782.65 90.37C764.78 90.37 753.54 98.94 753.54 111.94C753.54 122.59 760.63 129.35 773.94 131.94L785.96 134.28C791.55 135.39 794.86 137.53 794.86 141.17C794.86 145.39 790.51 148.38 783.43 148.38C775.96 148.38 771.54 144.81 770.83 138.83H751.99C753.15 153.58 765.95 162.09 783.75 162.09Z"/></svg></div><button class="fold" id="fold" aria-label="Réduire la barre latérale" title="Réduire la barre"><svg width="14" height="14"><use href="#i-chev"/></svg></button></div>
@@ -469,7 +532,7 @@ const ago = t => { const m = Math.max(0, Math.round((Date.now() - t) / 60e3)); r
 const hhmm = t => new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 const lvChip = lv => `<span class="lv c-${lv}">${LNAME[lv]}</span>`, scChip = (s) => `<span class="score c-${level(s)}">${s}</span>`;
 const byCli = a => fCli ? a.filter(x => (x.cli || x.last.cli) === fCli) : a;
-const GROUPS = [['Supervision',[['overview','Vue d’ensemble'],['clients','Clients'],['incidents','Incidents'],['logs','Flux de logs'],['devices','Équipements']]],['Détection',[['catalog','Référentiel'],['rules','Règles'],['docs','Documentation']]],['Paramètres',[['extensions','Extensions'],['ai','Intelligence artificielle'],['admin','Administration']]]];
+const GROUPS = [['Supervision',[['overview','Vue d’ensemble'],['clients','Clients'],['incidents','Incidents'],['logs','Flux de logs'],['devices','Équipements']]],['Détection',[['catalog','Référentiel'],['rules','Règles'],['docs','Documentation']]],['Paramètres',[['extensions','Extensions'],['ai','Intelligence artificielle'],['admin','Administration'],['settings','Réglages']]]];
 const VIEWS = GROUPS.flatMap(g => g[1]);
 const MON = () => clients.filter(c => devices.some(d => d.cli === c.id));
 function incRows(list, compact) {
@@ -615,6 +678,53 @@ V.catalog = () => { if (LIVEMODE) return catalogLive(); const prop = catalog.fil
   <section class="panel" style="margin-top:16px"><h2>Entrées actives</h2><table class="stack"><thead><tr><th>Famille</th><th>Catégorie</th><th>Type de log</th><th class="num">Base</th><th class="num">Plancher</th><th>Action recommandée</th><th>Source</th></tr></thead><tbody>${catalog.filter(c => c.st === 'actif').map(c => `<tr><td data-l="Famille">${c.fam}</td><td data-l="Catégorie">${c.cat}</td><td data-l="Type">${esc(c.sig)}</td><td data-l="Base" class="num"><input type="number" min="0" max="100" value="${c.base}" data-base="${c.k}" style="width:76px;text-align:right" aria-label="Note de base"></td><td data-l="Plancher" class="num">${c.floor || '—'}</td><td data-l="Action">${esc(c.act)}</td><td data-l="Source">${esc(c.src)}</td></tr>`).join('')}</tbody></table></section>`; };
 V.rules = () => `<h1>Règles de corrélation</h1><p class="sub">Version 1.0 des règles · « Tester » rejoue la règle sur les 24 h de logs chargées.</p>
   <section class="panel"><table class="stack"><thead><tr><th>Règle</th><th>Famille</th><th>Niveau visé</th><th>Active</th><th></th></tr></thead><tbody>${rules.map((r,i) => `<tr><td data-l="Règle">${esc(r.n)}<div class="sub" id="rt${i}" style="margin:0;font-size:13px"></div></td><td data-l="Famille">${r.f}</td><td data-l="Niveau">${lvChip(r.lvl)}</td><td data-l="Active"><input type="checkbox" ${r.on ? 'checked' : ''} data-rule="${i}" aria-label="Activer ${esc(r.n)}" style="width:20px;height:20px"></td><td><button class="btn" data-test="${i}">Tester</button></td></tr>`).join('')}</tbody></table></section>`;
+// --- Réglages › Apparence : design, mode clair/sombre, verre givré, fond d'écran (gardés dans ce navigateur)
+const WALLS = {none: ['Aucun', 'var(--bg)'],
+  aurore: ['Aurore', 'radial-gradient(60% 50% at 20% 25%, #1f7a55 0%, transparent 70%), radial-gradient(50% 45% at 80% 30%, #135a6b 0%, transparent 70%), radial-gradient(70% 60% at 55% 95%, #2b3f1d 0%, transparent 75%), #050807'],
+  braise: ['Braise', 'radial-gradient(55% 45% at 75% 20%, #8a2e0c 0%, transparent 70%), radial-gradient(60% 55% at 15% 80%, #5a1a12 0%, transparent 72%), #080505'],
+  nuit: ['Nuit', 'radial-gradient(55% 50% at 25% 30%, #1d2c6b 0%, transparent 70%), radial-gradient(50% 45% at 80% 70%, #2a1a55 0%, transparent 72%), #04050a'],
+  acier: ['Acier', 'linear-gradient(160deg, #2a302e 0%, #121615 45%, #1b2120 100%)']};
+const LOOK0 = {design: 'classique', mode: 'auto', frost: false, wall: 'none', custom: null, blur: 18, dim: 30};
+let LOOK = Object.assign({}, LOOK0);
+try { Object.assign(LOOK, JSON.parse(localStorage.getItem('syslens-apparence') || '{}')); } catch (e) {}
+function lookSave() { try { localStorage.setItem('syslens-apparence', JSON.stringify(LOOK)); } catch (e) { try { localStorage.setItem('syslens-apparence', JSON.stringify(Object.assign({}, LOOK, {custom: null}))); } catch (x) {} } }
+function lookApply() {
+  const r = document.documentElement, hasWall = LOOK.wall !== 'none' && !(LOOK.wall === 'custom' && !LOOK.custom);
+  r.dataset.design = LOOK.design; r.dataset.frost = LOOK.frost ? 'on' : 'off'; r.dataset.wall = hasWall ? 'on' : 'off';
+  if (LOOK.mode === 'auto') delete r.dataset.theme; else r.dataset.theme = LOOK.mode;
+  $('#wall').style.background = !hasWall ? '' : LOOK.wall === 'custom' ? `url(${LOOK.custom}) center/cover no-repeat` : WALLS[LOOK.wall][1];
+  $('#wall').style.filter = hasWall && LOOK.blur ? `blur(${LOOK.blur}px)` : 'none';
+  $('#dim').style.background = hasWall ? `rgba(0,0,0,${LOOK.dim / 100})` : 'transparent';
+}
+lookApply();
+V.settings = () => {
+  const L = LOOK, sw = (k, on, label) => `<button type="button" class="seg-sw" role="switch" aria-checked="${on}" data-look="${k}" aria-label="${esc(label)}" style="position:relative;width:46px;height:28px;border-radius:14px;border:0;cursor:pointer;flex:none;background:${on ? 'var(--acc)' : 'var(--line2)'}"><span style="position:absolute;top:4px;left:${on ? 22 : 4}px;width:20px;height:20px;border-radius:10px;background:${on ? 'var(--on-acc)' : 'var(--mute)'}"></span></button>`;
+  return `<h1>Réglages</h1><p class="sub">Apparence de la console. Gardée dans ce navigateur.</p>
+  <section class="panel" style="margin-top:18px"><h2>Design</h2>
+    <div class="looks" role="radiogroup" aria-label="Design">
+      <button type="button" class="lk" role="radio" aria-checked="${L.design === 'classique'}" data-look="design:classique"><span class="mk cl"></span><b>Classique</b><span class="note">Menu à gauche, cartes et jauges.</span></button>
+      <button type="button" class="lk" role="radio" aria-checked="${L.design === 'pilules'}" data-look="design:pilules"><span class="mk pi"></span><b>Pilules</b><span class="note">Fond noir, menu en pilules en haut, grands titres.</span></button>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;margin-top:16px;flex-wrap:wrap"><span>Mode</span><div class="seg" role="group" aria-label="Mode">${[['auto','Système'],['dark','Sombre'],['light','Clair']].map(([k, n]) => `<button type="button" class="${L.mode === k ? 'on' : ''}" aria-pressed="${L.mode === k}" data-look="mode:${k}" data-lookmode="1">${n}</button>`).join('')}</div></div>
+  </section>
+  <section class="panel" style="margin-top:16px"><div style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0">Verre givré</h2><p class="note" style="margin:4px 0 0">Les cartes et les menus deviennent du verre dépoli : on devine le fond d’écran derrière.</p></div>${sw('frost', L.frost, 'Verre givré')}</div></section>
+  <section class="panel" style="margin-top:16px"><h2>Fond d’écran</h2>
+    <div class="walls" role="radiogroup" aria-label="Fond d’écran">${Object.entries(WALLS).map(([k, [n, css]]) => `<button type="button" class="wl" role="radio" aria-checked="${L.wall === k}" data-look="wall:${k}"><i style="background:${css}"></i>${n}</button>`).join('')}
+      <label class="wl" aria-checked="${L.wall === 'custom'}" style="cursor:pointer"><i style="${L.custom ? `background:url(${L.custom}) center/cover` : 'display:grid;place-items:center;border-style:dashed'}">${L.custom ? '' : '+'}</i>Ton image<input type="file" accept="image/*" id="wallFile" class="sr" style="position:absolute;width:1px;height:1px;opacity:0"></label></div>
+    <div style="display:grid;gap:10px;margin-top:16px">
+      <label class="rng">Flou du fond<input type="range" min="0" max="60" value="${L.blur}" data-lookr="blur"><output>${L.blur} px</output></label>
+      <label class="rng">Assombrir<input type="range" min="0" max="85" value="${L.dim}" data-lookr="dim"><output>${L.dim} %</output></label>
+    </div>
+  </section>
+  <div style="margin-top:16px"><button type="button" class="btn" data-look="reset">Revenir à l’apparence par défaut</button></div>`;
+};
+document.addEventListener('click', e => { const b = e.target.closest('[data-look]'); if (!b) return; const v = b.dataset.look;
+  if (v === 'reset') Object.assign(LOOK, LOOK0, {custom: LOOK.custom}); else if (v === 'frost') LOOK.frost = !LOOK.frost;
+  else { const [k, x] = v.split(':'); LOOK[k] = x; }
+  lookSave(); lookApply(); render(); });
+document.addEventListener('input', e => { const i = e.target; if (!i.dataset || !i.dataset.lookr) return; LOOK[i.dataset.lookr] = +i.value; i.nextElementSibling.textContent = i.value + (i.dataset.lookr === 'blur' ? ' px' : ' %'); lookSave(); lookApply(); });
+document.addEventListener('change', e => { if (e.target.id !== 'wallFile') return; const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = new FileReader(); r.onload = () => { LOOK.custom = r.result; LOOK.wall = 'custom'; lookSave(); lookApply(); render(); }; r.readAsDataURL(f); });
 V.docs = () => `<h1>Documentation Zyxel</h1><p class="sub">Base documentaire utilisée par l'IA et pour proposer des entrées de référentiel. Chaque passage garde son document et sa version.</p>
   <div class="bar"><label class="btn p" style="display:inline-flex;align-items:center;cursor:pointer">Importer un PDF<input type="file" accept=".pdf,.html,.htm" id="docIn" multiple hidden></label><span class="sub" style="margin:0;font-size:13px">Démo : le fichier reste dans votre navigateur, rien n'est envoyé.</span></div>
   <section class="panel"><table class="stack"><thead><tr><th>Document</th><th>Modèles</th><th>Version</th><th>Type</th><th class="num">Passages</th><th>État</th></tr></thead><tbody>${docs.map(d => `<tr><td data-l="Document">${esc(d.t)}</td><td data-l="Modèles">${esc(d.m)}</td><td data-l="Version" class="mono">${esc(d.v)}</td><td data-l="Type">${d.p}</td><td data-l="Passages" class="num">${d.n || '—'}</td><td data-l="État"><span class="tag ${d.s === 'Indexé' ? 'ok' : 'warn'}">${esc(d.s)}</span></td></tr>`).join('')}</tbody></table></section>`;

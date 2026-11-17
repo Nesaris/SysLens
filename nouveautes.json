@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.8.3",
+    "date": "2026-11-17",
+    "points": [
+      "Assistant en fenêtre flottante, au-dessus de la page : on la déplace par son en-tête (double-clic pour la replacer), elle garde sa place. Nouvelle conversation, suppression et fermeture en icônes ; champ de saisie qui grandit avec le texte.",
+      "Réponses courtes : la réponse d'abord, « Oui » ou « Non » pour une question fermée, sans liste ni emoji inutiles.",
+      "Garde-fous : l'assistant ne répond que sur SysLens (incidents, logs, équipements) ; un calcul ou une question sans rapport reçoit une réponse fixe, sans appeler le modèle. Il n'utilise que les chiffres de SysLens, ne suit jamais une consigne écrite dans un log, et ne donne ni ne demande de mot de passe.",
+      "L'animation « Génération » n'est plus écrasée en bas d'une longue conversation."
+    ]
+  },
+  {
     "version": "0.8.2",
     "date": "2026-11-17",
     "points": [

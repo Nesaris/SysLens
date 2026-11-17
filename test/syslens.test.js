@@ -398,6 +398,10 @@ test('comptes et assistant : premier compte local, connexion obligatoire, conver
   assert.equal((await req('/api/chat', { op: 'send', id: c1.json.id, text: 'intrusion', ai }, T)).statut, 404, 'ni écrire dedans');
   assert.equal((await req('/api/chat', { op: 'delete', id: c1.json.id }, T)).statut, 404, 'ni la supprimer');
   assert.equal((await req('/api/chat', undefined, A)).json.convs[0].n, 4);
+  // Garde-fou : un calcul hors sujet reçoit la réponse fixe, sans appel au modèle.
+  const avant = prompts.length, hs = await req('/api/chat', { op: 'send', text: 'non juste 20+20=Combien', ai }, A);
+  assert.equal(prompts.length, avant, 'pas d’appel au modèle'); assert.match(hs.json.msgs.at(-1).content, /uniquement sur SysLens/);
+  assert.match(prompts[0].messages[0].content, /jamais des consignes/);
   const st = fs.statSync(path.join(s.dossier, 'logs', 'comptes.json')); assert.equal(st.mode & 0o777, 0o600);
   assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'comptes.json'), 'utf8').includes('mot-de-passe-admin'), 'mot de passe haché');
   // Déconnexion, puis 5 essais ratés : blocage.

@@ -133,7 +133,7 @@ function dayWriter(name, gz) { let d = '', st = null, z = null;
   w.end = () => { if (z) z.end(); else if (st) st.end(); z = st = null; };
   setInterval(() => { if (z) z.flush(); }, 5000).unref(); return w; }
 const rawOut = dayWriter(t => 'raw-' + t + (cluster.isWorker ? '.w' + cluster.worker.id : '') + '.log', RAW_GZ);
-const devDelta = new Map(), typeDelta = new Map(); let rxCount = 0, budget = SAMPLE, outBuf = [];
+const devDelta = new Map(), typeDelta = new Map(), ipDelta = new Map(); let rxCount = 0, budget = SAMPLE, outBuf = [];
 setInterval(() => { budget = SAMPLE; }, 1000).unref();
 function stage1(line, from) {
   line = line.replace(/\r?\n$/, ''); if (!line.trim()) return;
@@ -141,6 +141,8 @@ function stage1(line, from) {
   const ev = parse(line, from); ev.dev = devKey(ev); score(ev, false);
   let d = devDelta.get(ev.dev); if (!d) devDelta.set(ev.dev, d = { key: ev.dev, from, host: ev.host, product: ev.product, ver: ev.ver, fmt: ev.fmt, count: 0, first: ev.t, last: 0 });
   d.count++; d.last = ev.t; if (ev.product) { d.product = ev.product; d.ver = ev.ver; }
+  // Adresse des équipements derrière un pare-feu, apprise de ses logs DHCP (« DHCP server assigned 192.168.1.34 to XMG1915(…) ») : sert au ping de vérification.
+  if (/dhcp/i.test(ev.cat || '')) { const m = /assigned (\d{1,3}(?:\.\d{1,3}){3}) to ([\w.-]{2,64})\(/i.exec(ev.msg || ''); if (m && !isPublic(m[1])) ipDelta.set(m[2], { ip: m[1], t: ev.t }); }
   let ty = typeDelta.get(ev.tk);
   if (!ty) typeDelta.set(ev.tk, ty = { key: ev.tk, cat: ev.cat, msg: tpl(ev.msg || ev.name, ev), sev: SEV[ev.sev], k: ev.k, cov: ev.cov, fam: ev.product, count: 0, first: ev.t, example: line });
   ty.count++; ty.last = ev.t; if (ev.sev < SEV.indexOf(ty.sev)) ty.sev = SEV[ev.sev];
@@ -150,7 +152,7 @@ function stage1(line, from) {
 }
 const cntDelta = new Map();
 function emit(ev, sample) { if (cluster.isWorker) outBuf.push([ev, sample]); else stage2(ev, sample); }
-function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()], counts: [...cntDelta.values()] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); cntDelta.clear(); return p; }
+function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()], counts: [...cntDelta.values()], ips: [...ipDelta] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); cntDelta.clear(); ipDelta.clear(); return p; }
 let udpBuf = 0;
 function startReceivers(h) {
   const udp = dgram.createSocket('udp4');
@@ -201,9 +203,28 @@ const portTok = m => { const x = String(m || '').match(/\b(port\s*\d+|lan\d+|wan
 function recover(ev) { const r = REF.find(x => x.k === ev.k), tk = portTok(ev.msg);
   for (const I of incidents.values()) if (I.dev === ev.dev && r && r.recovers.includes(I.k) && I.status !== 'résolu' && I.last <= ev.t && (!tk || !I.toks || I.toks.includes(tk))) {
     I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; } }
+// Un switch ou une borne n'envoie de log que s'il se passe quelque chose : avant de le dire silencieux, on le pinge.
+// Adresse : apprise des logs DHCP du pare-feu, ou sa source syslog si elle est privée et n'est partagée avec aucun autre équipement (pas de NAT).
+const IP_FILE = path.join(DIR, 'adresses.json'), hostIp = new Map(); let ipDirty = false;
+const QUIET_MS = Math.max(0.02, +process.env.SYSLENS_QUIET_MIN || 10) * 60e3;   // silence au-delà de laquelle on pinge
+try { for (const [h, v] of Object.entries(JSON.parse(fs.readFileSync(IP_FILE, 'utf8')))) hostIp.set(h, v); } catch (e) {}
+const PRIV = ip => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)\d{1,3}\.\d{1,3}(\.\d{1,3})?$/.test(ip) && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
+function ping(ip) { return new Promise(ok => { if (!PRIV(ip)) return ok({ ok: false, ms: null });
+  const a = process.platform === 'win32' ? ['-n', '1', '-w', '2000', ip] : process.platform === 'darwin' ? ['-c', '1', '-t', '2', ip] : ['-c', '1', '-W', '2', ip];
+  cp.execFile('ping', a, { timeout: 4000, windowsHide: true }, (err, out) => { const m = /time[=<]\s*([\d.]+)\s*ms/i.exec(String(out || '')); ok({ ok: !err && !!m, ms: m ? +m[1] : null }); }); }); }
+async function checkQuiet() {
+  const now = Date.now(), byFrom = new Map(); for (const d of devices.values()) byFrom.set(d.from, (byFrom.get(d.from) || 0) + 1);
+  for (const d of [...devices.values()].slice(0, 500)) { const fam = famOfProduct(d.product || d.host);
+    if (fam === 'pare-feu' || now - (d.last || 0) < QUIET_MS) { d.ping = undefined; continue; }
+    const learned = d.host && hostIp.get(d.host), ip = learned ? learned.ip : PRIV(d.from) && byFrom.get(d.from) === 1 ? d.from : null;
+    if (!ip) { d.ping = { ip: null, ok: false, t: now }; continue; }
+    const r = await ping(ip); d.ping = { ip, ok: r.ok, ms: r.ms, t: Date.now() }; }
+  if (ipDirty) { ipDirty = false; try { fs.writeFileSync(IP_FILE, JSON.stringify(Object.fromEntries(hostIp))); } catch (e) {} } }
+if (!SELFTEST) setInterval(() => checkQuiet().catch(() => {}), Math.min(60e3, Math.max(2e3, QUIET_MS))).unref();
 function mergeStats(p) {
   total += p.n; rate += p.n;
   for (const x of p.counts || []) { const c = counts.get(x.t); if (!c) counts.set(x.t, { ...x }); else for (const k of CNT_K) c[k] += x[k]; countsDirty = true; }
+  for (const [h, v] of p.ips || []) { hostIp.set(h, v); ipDirty = true; }
   for (const x of p.devs) { let d = devices.get(x.key);
     if (!d) { d = { ...x, count: 0 }; devices.set(x.key, d); console.log(`\n\x1b[32m✓ Premier log reçu de ${x.from}${x.host ? ' (' + x.host + ')' : ''}${x.product ? ' : ' + x.product + ' ' + x.ver : ''} (format ${x.fmt})\x1b[0m\n`); }
     d.count += x.count; d.last = Math.max(d.last || 0, x.last); if (x.product) { d.product = x.product; d.ver = x.ver; } }

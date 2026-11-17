@@ -386,6 +386,8 @@ const devices = [
   {id:'ap-d-01',cli:'cli-33',fam:'Borne',model:'NWA130BE',fw:'Nebula',src:'Nebula (syslog + API)',crit:'',last:41}];
 if (LIVEMODE) devices.length = 0;
 const SILENCE = {'Pare-feu':15,'Switch':30,'Borne':30};
+// Un switch ou une borne ne parle que s'il se passe quelque chose : le serveur le pinge quand il se tait (d.ping).
+const pingOk = d => !!(d.ping && d.ping.ok && Date.now() - d.ping.t < 10 * 60e3), alive = d => d.last <= SILENCE[d.fam] || pingOk(d);
 const catalog = [
   {k:'admin-ok',fam:'Pare-feu',cat:'User',sig:'Administrateur connecté',base:70,floor:0,admin:true,mean:"Connexion réussie à l'interface d'administration.",act:"Vérifier que la connexion est attendue ; si elle vient du WAN, fermer l'accès admin WAN.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
   {k:'admin-ko',fam:'Pare-feu',cat:'User',sig:"Échec d'authentification administrateur",base:20,floor:0,admin:true,mean:"Mot de passe administrateur refusé.",act:"Au-delà de 10 échecs en 5 min : bloquer la source, vérifier l'exposition du port d'administration.",src:'Guide ATP 5.42, Log and Report',st:'actif'},
@@ -534,9 +536,10 @@ function incidents() {
     const back = up[last.dev + '|' + last.k] > last.t;   // revenu tout seul : clos automatiquement
     out.push({key, list, last, sc, lv, auto: back, ...incStatus(key, back, up[last.dev + '|' + last.k], last.t)});
   }
-  for (const d of devices) { const lim = SILENCE[d.fam]; if (d.last > lim) {
-    const key = 'silence|' + d.id, sc = {s: 66, parts: [['Règle : équipement silencieux (seuil ' + lim + ' min)', 66]], floor: 0};
-    out.push({key, list: [], last: {t: NOW - d.last * 60e3, dev: d.id, cli: d.cli, fam: d.fam, k: 'silence', msg: 'Aucun log depuis ' + d.last + ' min', src: ''}, sc, lv: 'grave', ...incStatus(key, false, 0, NOW - d.last * 60e3)}); } }
+  for (const d of devices) { const lim = SILENCE[d.fam]; if (d.last > lim && !pingOk(d)) {
+    const key = 'silence|' + d.id, p = d.ping, why = p && p.ip ? ` · ne répond pas au ping (${p.ip})` : p ? ' · pas d’adresse connue pour le pinger' : '';
+    const sc = {s: 66, parts: [['Règle : équipement silencieux (seuil ' + lim + ' min)' + why, 66]], floor: 0};
+    out.push({key, list: [], last: {t: NOW - d.last * 60e3, dev: d.id, cli: d.cli, fam: d.fam, k: 'silence', msg: 'Aucun log depuis ' + d.last + ' min' + why, src: ''}, sc, lv: 'grave', ...incStatus(key, false, 0, NOW - d.last * 60e3)}); } }
   return out.sort((a,b) => b.sc.s - a.sc.s);
 }
 // --- état d'affichage
@@ -558,7 +561,7 @@ const V = {};
 function route() { const h = location.hash.slice(1); return VIEWS.some(v => v[0] === h) ? h : 'overview'; }
 function nav() {
   const open = byCli(incidents()).filter(i => i.st !== 'clos'), crit = open.filter(i => i.lv === 'critique').length;
-  const devs = byCli(devices), silent = devs.filter(d => d.last > SILENCE[d.fam]).length, prop = catalog.filter(c => c.st === 'propose').length, todo = EXT.filter(x => x.st === 'config').length;
+  const devs = byCli(devices), silent = devs.filter(d => !alive(d)).length, prop = catalog.filter(c => c.st === 'propose').length, todo = EXT.filter(x => x.st === 'config').length;
   const badge = id => id === 'incidents' ? (crit ? `<em class="b-crit" title="${crit} critique(s)">${crit}</em>` : open.length ? `<em class="b-n">${open.length}</em>` : '')
     : id === 'devices' && silent ? `<em class="b-warn" title="${silent} silencieux">${silent}</em>` : id === 'catalog' && prop ? `<em class="b-n" title="${prop} à valider">${prop}</em>` : id === 'extensions' && todo ? `<em class="b-warn" title="${todo} à configurer">${todo}</em>` : '';
   $('#nav').innerHTML = GROUPS.map(([g, items]) => `<div class="grp"><p>${g}</p>${items.map(([id,n]) => `<a href="#${id}" class="${route() === id ? 'on' : ''}" title="${n}"${route() === id ? ' aria-current="page"' : ''}><svg><use href="#i-${id}"/></svg><span>${n}</span>${badge(id)}</a>`).join('')}</div>`).join('');
@@ -589,7 +592,7 @@ const RANK = {benin:0,moyen:1,grave:2,critique:3};
 const maxLv = l => l.reduce((m, e) => { const v = level(scoreOf(e, 1).s); return RANK[v] > RANK[m] ? v : m; }, 'benin');
 V.overview = () => {
   const t0 = Date.now() - per * H, ev = byCli(events).filter(e => e.t >= t0), all = byCli(incidents()), open = all.filter(i => i.st !== 'clos');
-  const devs = byCli(devices), talk = devs.filter(d => d.last <= SILENCE[d.fam]).length;
+  const devs = byCli(devices), talk = devs.filter(alive).length, nIncW = all.filter(i => i.list.length && i.last.t >= t0).length;
   const cover = ev.length ? ev.filter(e => CAT[e.k] && CAT[e.k].st === 'actif').length / ev.length : 0;
   const aiN = all.filter(i => i.lv === 'moyen' || i.lv === 'grave').reduce((a, i) => a + i.list.filter(e => e.t >= t0).length, 0), aiShare0 = ev.length ? aiN / ev.length : 0;
   let aiShare = aiShare0;
@@ -623,12 +626,12 @@ V.overview = () => {
   <div class="seg" role="group" aria-label="Fenêtre de temps">${[6,12,24].map(h => `<button data-per="${h}" class="${per === h ? 'on' : ''}" aria-pressed="${per === h}">${h} h</button>`).join('')}</div></div>
   <div class="ov"><div class="ovmain">
   <section class="card c-logs"><h3>Logs reçus <span class="ico"><svg width="14" height="14"><use href="#i-logs"/></svg></span></h3>
-    <div class="big">${fmtN(nLogs)}</div><p class="note"><b style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</b> notés moyen ou plus · ${(nLogs / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
+    <div class="big">${fmtN(nLogs)}</div><p class="note"><b style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</b> logs notés moyen ou plus${nIncW ? `, regroupés en ${nIncW} incident${nIncW > 1 ? 's' : ''}` : ''} · ${(nLogs / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
     <div class="cols" role="img" aria-label="Volume de logs sur ${per} heures, colorié par le niveau le plus haut">${cols}</div><div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div>
     <div class="gw">${gauge(risk / 100, LVC[rLv], 'Score le plus haut encore ouvert : ' + risk)}<div class="gv"><span class="big">${risk}<small>/100</small></span></div></div>
     <p class="note" style="text-align:center">Score le plus haut encore ouvert · ${LNAME[rLv]}</p></section>
   <div class="gauges">
-    <section class="card"><h3>Équipements qui parlent</h3><div class="gw">${gauge(devs.length ? talk / devs.length : 0, 'var(--acc)', 'Équipements actifs')}<div class="gv"><span class="big">${pctH(devs.length ? talk / devs.length : 0)}</span></div></div><p class="note">${talk} sur ${devs.length} · seuil de silence par famille</p></section>
+    <section class="card"><h3>Équipements en ligne</h3><div class="gw">${gauge(devs.length ? talk / devs.length : 0, 'var(--acc)', 'Équipements actifs')}<div class="gv"><span class="big">${pctH(devs.length ? talk / devs.length : 0)}</span></div></div><p class="note">${talk} sur ${devs.length} · logs récents, ou ping pour un switch ou une borne calme</p></section>
     <section class="card"><h3>Couverture du référentiel</h3><div class="gw">${gauge(cover, 'var(--sw)', 'Couverture du référentiel')}<div class="gv"><span class="big">${pctH(cover)}</span></div></div><p class="note">Logs notés par une entrée validée</p></section>
     <section class="card"><h3>Part vue par l'IA</h3><div class="gw">${gauge(ring, aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)', 'Part des logs envoyée à l’IA')}<div class="gv"><span class="big">${pctH(aiShare)}</span></div></div><p class="note">Budget : moins de 5 % des logs</p></section>
   </div>
@@ -639,7 +642,7 @@ V.overview = () => {
       <span class="th" style="top:${thY(85)}%">critique 85</span><span class="th" style="top:${thY(60)}%">grave 60</span><span class="th" style="top:${thY(30)}%">moyen 30</span></div>
     <div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div></section>
   <section class="card c-dots"><h3>Activité par client <span class="tag">${per} h</span></h3><div class="dots">${rows}</div>
-    <div class="legend">${['critique','grave','moyen','benin'].map(l => `<div class="c-${l}"><b>${fmtN(byLv[l])}</b><span>${LNAME[l]}s</span></div>`).join('')}</div><p class="note" style="margin-top:8px">Logs reçus sur ${per} h, par niveau.</p></section>
+    <div class="legend">${['critique','grave','moyen','benin'].map(l => `<div class="c-${l}"><b>${fmtN(byLv[l])}</b><span>${LNAME[l]}s</span></div>`).join('')}</div><p class="note" style="margin-top:8px">Logs reçus sur ${per} h, par niveau. Un incident regroupe les logs d’un même problème : voir Incidents.</p></section>
   <section class="card c-tbl"><h3>À traiter maintenant <a href="#incidents">Voir les ${open.length} incidents</a></h3>${incRows(open.slice(0, 6))}</section>
   </div>
   <aside class="ovside">
@@ -682,7 +685,7 @@ function logTable() {
     (openRow === e.id ? `<tr><td colspan="6"><div class="raw">${esc(e.raw)}</div><dl class="kv" style="margin-top:8px"><dt>Format</dt><dd>${e.fam === 'Switch' ? 'Syslog RFC 3164' : 'CEF/Syslog'}</dd><dt>Gravité constructeur</dt><dd>${e.vsev}</dd><dt>src</dt><dd class="mono">${e.src || '—'}</dd><dt>dst</dt><dd class="mono">${e.dst || '—'}</dd><dt>Empreinte</dt><dd class="mono">sha256:${(e.id * 2654435761 >>> 0).toString(16).padStart(8,'0')}…</dd></dl></td></tr>` : ''); }).join('')}</tbody></table>`;
 }
 V.devices = () => `<h1>Équipements</h1><p class="sub">Inventaire par client. Le seuil de silence dépend de la famille : pare-feu ${SILENCE['Pare-feu']} min, switch et borne ${SILENCE.Switch} min.</p>
-  <section class="panel"><table class="stack"><thead><tr><th>Équipement</th><th>Client</th><th>Famille</th><th>Modèle</th><th>Firmware</th><th>Source</th><th>Criticité</th><th class="num">Dernier log</th><th></th></tr></thead><tbody>${byCli(devices).map(d => `<tr><td data-l="Équipement" class="mono">${d.id}</td><td data-l="Client">${esc(cName(d.cli))}</td><td data-l="Famille">${d.fam}</td><td data-l="Modèle">${d.model}</td><td data-l="Firmware" class="mono">${d.fw}</td><td data-l="Source">${d.src}</td><td data-l="Criticité">${d.crit === 'tete' ? 'Pare-feu de tête' : d.crit === 'coeur' ? 'Switch cœur' : 'Standard'}</td><td data-l="Dernier log" class="num" style="color:${d.last > SILENCE[d.fam] ? 'var(--grav)' : 'inherit'}">${d.last} min</td><td><button class="btn" data-maint="${d.id}">${d.maint ? 'Fin de maintenance' : 'Déclarer maintenance'}</button></td></tr>`).join('')}</tbody></table></section>
+  <section class="panel"><table class="stack"><thead><tr><th>Équipement</th><th>Client</th><th>Famille</th><th>Modèle</th><th>Firmware</th><th>Source</th><th>Criticité</th><th class="num">Dernier log</th><th></th></tr></thead><tbody>${byCli(devices).map(d => `<tr><td data-l="Équipement" class="mono">${d.id}</td><td data-l="Client">${esc(cName(d.cli))}</td><td data-l="Famille">${d.fam}</td><td data-l="Modèle">${d.model}</td><td data-l="Firmware" class="mono">${d.fw}</td><td data-l="Source">${d.src}</td><td data-l="Criticité">${d.crit === 'tete' ? 'Pare-feu de tête' : d.crit === 'coeur' ? 'Switch cœur' : 'Standard'}</td><td data-l="Dernier log" class="num" style="color:${alive(d) ? 'inherit' : 'var(--grav)'}">${d.last < 120 ? d.last + ' min' : Math.round(d.last / 60) + ' h'}${d.last > SILENCE[d.fam] && d.ping ? `<br><span class="note">${pingOk(d) ? 'calme · répond au ping' + (d.ping.ms != null ? ' (' + d.ping.ms + ' ms)' : '') : d.ping.ip ? 'ne répond pas au ping' : 'pas d’adresse pour le ping'}</span>` : ''}</td><td><button class="btn" data-maint="${d.id}">${d.maint ? 'Fin de maintenance' : 'Déclarer maintenance'}</button></td></tr>`).join('')}</tbody></table></section>
   <section class="panel" style="margin-top:16px"><h2>Fiche de réglage — pare-feu ZLD (USG FLEX, ATP)</h2><ol><li>Log &amp; Report &gt; Log Settings &gt; Remote Server 1 à 4 : en réserver un à SysLens.</li><li>Format : <b>CEF/Syslog</b> (le format Syslog simple insère l'année hors RFC 3164).</li><li>Adresse : le collecteur du site, port 514, facility local1.</li><li>Catégories : User, IDP, ADP, Anti-Malware, Sandbox, IP Reputation, DNS Threat Filter, IKE/IPsec, Interface, System Monitoring en « normal » ; Traffic Log selon le contrat client.</li></ol></section>`;
 const COVN = {precis: 'Règle précise', appris: 'Type appris', categorie: 'Catégorie connue', propose: 'Proposé par l’IA', qualifier: 'À qualifier'};
 function learnPanel() { const L = REFD.learn || {}, pc = Math.round((L.rate || 0) * 100), localAi = ai.saved && ai.mode === 'local' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(ai.url || '');
@@ -1143,7 +1146,7 @@ document.addEventListener('click', async e => {
     t.disabled = true; try { await refPost(t.dataset.prej ? {op: 'rejet', key} : {op: t.dataset.qsave ? 'manuel' : 'valide', key, base: inp ? +inp.value : undefined}); refMsg = t.dataset.prej ? 'Proposition rejetée.' : 'Type enregistré : il est noté ainsi dès maintenant.'; } catch (err) { refMsg = err.message; }
     await refLoad(); render(); return; }
   if (t.dataset.val || t.dataset.rej) { const c = CAT[t.dataset.val || t.dataset.rej]; if (t.dataset.val) c.st = 'actif'; else catalog.splice(catalog.indexOf(c), 1); render(); return; }
-  if (t.dataset.test) { const r = rules[+t.dataset.test], hits = r.k === 'silence' ? devices.filter(d => d.last > SILENCE[d.fam]).length : events.filter(x => x.k === r.k).length;
+  if (t.dataset.test) { const r = rules[+t.dataset.test], hits = r.k === 'silence' ? devices.filter(d => !alive(d)).length : events.filter(x => x.k === r.k).length;
     const grp = r.k === 'silence' ? hits : incidents().filter(i => i.last.k === r.k).length; $('#rt' + t.dataset.test).textContent = `${hits} événement${hits > 1 ? 's' : ''} correspondant${hits > 1 ? 's' : ''} en 24 h → ${grp} incident${grp > 1 ? 's' : ''}.`; return; }
 });
 document.addEventListener('change', e => {
@@ -1371,6 +1374,7 @@ async function livePoll() { if (paused) return;
     versionSeen(j.version);
     for (const x of j.events) { liveEv(x); liveSince = Math.max(liveSince, x.id); }
     if (j.counts) SRVCNT = j.counts;
+    for (const x of j.devices || []) { if (!x.last) continue; const d = liveDev({host: x.host, from: x.from, product: x.product, ver: x.ver, fmt: x.fmt, t: x.last}); d.ping = x.ping; }
     if (j.events.length) { events.sort((a,b) => a.t - b.t); if (events.length > 20000) events.splice(0, events.length - 20000); srcCache.clear(); }
     const now = Date.now(); devices.forEach(d => d.last = Math.max(0, Math.round((now - d.lastT) / 60e3)));
     const first = liveOk !== true; liveOk = true; liveN++;

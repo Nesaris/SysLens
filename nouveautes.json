@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.7.1",
+    "date": "2026-11-17",
+    "points": [
+      "Switchs et bornes : un équipement qui se tait n'est plus déclaré silencieux s'il répond au ping. Un switch n'envoie de log que s'il se passe quelque chose ; SysLens apprend son adresse dans les logs DHCP du pare-feu (logs/adresses.json) et le pinge après 10 min de silence. Il reste en incident s'il ne répond pas, ou si aucune adresse n'est connue.",
+      "Équipements : la colonne Dernier log indique « calme · répond au ping (1 ms) » ou « ne répond pas au ping ». La carte devient « Équipements en ligne ».",
+      "La console prend l'heure du dernier log de chaque équipement sur le serveur, y compris ses logs bénins : elle n'est plus limitée aux événements affichés.",
+      "Vue d'ensemble : « 7 logs notés moyen ou plus, regroupés en 2 incidents ». Un incident regroupe les logs d'un même problème, d'où des chiffres différents."
+    ]
+  },
+  {
     "version": "0.7.0",
     "date": "2026-11-17",
     "points": [

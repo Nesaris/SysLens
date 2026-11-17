@@ -100,6 +100,7 @@ Tout reste sur la machine :
 - `logs/types.json` : tous les types de logs vus depuis l'installation, avec leur couverture ;
 - `logs/compteurs.json` : le nombre de logs reçus par tranche de 5 minutes et par niveau, sur 7 jours ;
 - `logs/incidents-etat.json` : les incidents acquittés ou clos par un admin (avec un résumé pour l’onglet Archivés), gardés 13 mois ;
+- `logs/adresses.json` : l'adresse IP des switchs et bornes derrière un pare-feu, apprise de ses logs DHCP, pour les pinger quand ils se taisent ;
 - `logs/ref-appris.json` : les types classés par l'IA ou un technicien, et les notes de base corrigées.
 
 Ces fichiers contiennent des adresses IP et des identifiants des clients : le `.gitignore` les tient hors du dépôt, et rien n'est envoyé ailleurs. Les logos des extensions sont récupérés une fois sur le site officiel de chaque marque et gardés dans `extensions/` ; ils ne sont pas redistribués avec le code.

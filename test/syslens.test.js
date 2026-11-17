@@ -348,3 +348,17 @@ test('apprentissage : décisions gardées, exemples envoyés à l’IA, autonomi
   await post({ op: 'ia', ai: { url: ai.url, model: 'essai:8b' } }); assert.equal((await ref()).learn.ia.model, 'essai:8b');
   const f = JSON.parse(fs.readFileSync(path.join(dossier, 'logs', 'ref-appris.json'))); assert.equal(f.decisions.length >= 12, true); assert.equal(f.auto.on, true);
 });
+
+test('équipement calme : un switch qui se tait est pingé à l’adresse apprise des logs DHCP du pare-feu', async () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'faux-ping-'));   // faux ping : seul 192.168.1.34 répond
+  fs.writeFileSync(path.join(bin, 'ping'), '#!/bin/sh\nfor a; do last=$a; done\nif [ "$last" = "192.168.1.34" ]; then echo "64 bytes from 192.168.1.34: icmp_seq=0 ttl=64 time=1.25 ms"; exit 0; fi\nexit 2\n', { mode: 0o755 });
+  const s = await demarrer({ PATH: bin + path.delimiter + process.env.PATH, SYSLENS_QUIET_MIN: '0.03' });
+  await envoyer(s.syslog, [cef('DHCP', 6, 'msg=DHCP server assigned 192.168.1.34 to XMG1915(70:49:A2:21:D0:6D) cat=DHCP ZYlevel=info'),
+    '<135> 2026-11-17T08:14:39Z XMG1915 interface: Port 2 link up 1G/F', '<135> 2026-11-17T08:14:39Z GS1920 interface: Port 3 link up 1G/F']);
+  let d; for (let i = 0; i < 60; i++) { await attendre(250); d = (await requete(s.web, '/api/events?since=0')).json.devices; if (d.filter(x => x.ping).length >= 2) break; }
+  const xmg = d.find(x => x.host === 'XMG1915'), gs = d.find(x => x.host === 'GS1920'), fw = d.find(x => x.host === 'usgflex50w');
+  assert.deepEqual([xmg.ping.ip, xmg.ping.ok, xmg.ping.ms], ['192.168.1.34', true, 1.25], 'switch calme mais joignable');
+  assert.deepEqual([gs.ping.ip, gs.ping.ok], [null, false], 'pas d’adresse connue : on ne pinge rien');
+  assert.equal(fw.ping, undefined, 'un pare-feu parle en continu : jamais pingé');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.dossier, 'logs', 'adresses.json')))['XMG1915'].ip, '192.168.1.34');
+});

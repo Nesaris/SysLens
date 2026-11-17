@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.8.1",
+    "date": "2026-11-17",
+    "points": [
+      "Assistant : bouton rond en bas à droite, avec une bulle « AI » et une petite étoile.",
+      "Pendant que l'IA écrit, un anneau animé « Génération » remplace le texte d'attente (d'après Uiverse.io, dexter-st, licence MIT ; animation coupée si le système demande moins de mouvement)."
+    ]
+  },
+  {
     "version": "0.8.0",
     "date": "2026-11-17",
     "points": [

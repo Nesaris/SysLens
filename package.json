@@ -1,6 +1,6 @@
 {
   "name": "syslens",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Collecte et tri par gravité des logs réseau (Zyxel d'abord) : console web, IA locale au choix, mise à jour automatique. Zéro dépendance.",
   "private": true,
   "license": "MIT",

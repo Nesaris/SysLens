@@ -514,7 +514,8 @@ V.overview = () => {
   const t0 = Date.now() - per * H, ev = byCli(events).filter(e => e.t >= t0), all = byCli(incidents()), open = all.filter(i => i.st !== 'clos');
   const devs = byCli(devices), talk = devs.filter(d => d.last <= SILENCE[d.fam]).length;
   const cover = ev.length ? ev.filter(e => CAT[e.k] && CAT[e.k].st === 'actif').length / ev.length : 0;
-  const aiN = all.filter(i => i.lv === 'moyen' || i.lv === 'grave').reduce((a, i) => a + i.list.filter(e => e.t >= t0).length, 0), aiShare = ev.length ? aiN / ev.length : 0;
+  const aiN = all.filter(i => i.lv === 'moyen' || i.lv === 'grave').reduce((a, i) => a + i.list.filter(e => e.t >= t0).length, 0), aiShare0 = ev.length ? aiN / ev.length : 0;
+  let aiShare = aiShare0;
   const risk = open.length ? open[0].sc.s : 0, rLv = level(risk), n = l => open.filter(i => i.lv === l).length, crit = n('critique');
   const lvOf = ev.map(e => level(scoreOf(e, 1).s)); let nonBen = lvOf.filter(l => l !== 'benin').length, nLogs = ev.length;
   const cb = buckets(ev, 48); let colv = cb.map(b => [b.length, b.length ? maxLv(b) : 'benin']);
@@ -522,13 +523,20 @@ V.overview = () => {
   if (srvc) { nLogs = srvc.reduce((a, c) => a + c.n, 0); nonBen = srvc.reduce((a, c) => a + c.m + c.g + c.c, 0); const w = per * H / 48;
     colv = Array.from({length: 48}, () => [0, 'benin', 0, 0, 0]); for (const c of srvc) { const i = Math.min(47, Math.floor((c.t - t0) / w)); if (i < 0) continue; const b = colv[i]; b[0] += c.n; b[2] += c.m; b[3] += c.g; b[4] += c.c; }
     colv = colv.map(b => [b[0], b[4] ? 'critique' : b[3] ? 'grave' : b[2] ? 'moyen' : 'benin']); }
+  if (srvc) aiShare = nLogs ? aiN / nLogs : 0;
   const cmax = Math.max(1, ...colv.map(b => b[0]));
   const cols = colv.map(([n, lv]) => `<div class="l-${lv}" style="height:${(n / cmax * 100).toFixed(1)}%" title="${n} logs"></div>`).join('');
   const lb = buckets(ev, 24), pts = lb.map((b, i) => [i / 23 * 300, 140 - (b.length ? Math.max(...b.map(e => scoreOf(e, 1).s)) : 0) * 1.3]);
   const line = smooth(pts), lastV = Math.round((140 - pts[23][1]) / 1.3);
   const thY = v => ((140 - v * 1.3) / 150 * 100).toFixed(1);
-  const rows = (fCli ? clients.filter(c => c.id === fCli) : MON()).map(c => { const b = buckets(ev.filter(e => e.cli === c.id), 24);
-    return `<span title="${esc(c.name)}">${esc(c.id === 'cli-test' ? c.name : c.name.split(' ').slice(-1)[0])}</span>` + b.map(x => `<i class="${x.length ? 'l-' + maxLv(x) : ''}" title="${x.length} logs"></i>`).join(''); }).join('');
+  const cnt24 = srvc ? Array.from({length: 24}, () => [0, 0, 0, 0]) : null;
+  if (cnt24) for (const c of srvc) { const i = Math.min(23, Math.floor((c.t - t0) / (per * H / 24))); if (i >= 0) { const b = cnt24[i]; b[0] += c.n; b[1] += c.m; b[2] += c.g; b[3] += c.c; } }
+  const rows = (fCli ? clients.filter(c => c.id === fCli) : MON()).map(c => {
+    const b = cnt24 && c.id === 'cli-test' ? cnt24.map(([n, m, g, k]) => [n, k ? 'critique' : g ? 'grave' : m ? 'moyen' : 'benin']) : buckets(ev.filter(e => e.cli === c.id), 24).map(x => [x.length, x.length ? maxLv(x) : 'benin']);
+    return `<span title="${esc(c.name)}">${esc(c.id === 'cli-test' ? c.name : c.name.split(' ').slice(-1)[0])}</span>` + b.map(([n, lv]) => `<i class="${n ? 'l-' + lv : ''}" title="${fmtN(n)} logs"></i>`).join(''); }).join('');
+  // Même unité partout dans la carte : des logs reçus sur la fenêtre, par niveau.
+  const byLv = srvc ? {critique: srvc.reduce((a, c) => a + c.c, 0), grave: srvc.reduce((a, c) => a + c.g, 0), moyen: srvc.reduce((a, c) => a + c.m, 0)} : {critique: lvOf.filter(l => l === 'critique').length, grave: lvOf.filter(l => l === 'grave').length, moyen: lvOf.filter(l => l === 'moyen').length};
+  byLv.benin = Math.max(0, nLogs - byLv.critique - byLv.grave - byLv.moyen);
   const fam = [['Pare-feu','var(--fw)','fw'],['Switch','var(--sw)','sw'],['Borne','var(--ap)','ap']].map(([f,c,k]) => [f, c, srvc ? srvc.reduce((a, x) => a + (x[k] || 0), 0) : ev.filter(e => e.fam === f).length]);
   const famT = fam.reduce((a, x) => a + x[2], 0);
   let off = 0; const donut = fam.map(([f,c,v]) => { const p = famT ? v / famT * 100 : 0, s = `<circle cx="44" cy="44" r="34" fill="none" stroke="${c}" stroke-width="9" pathLength="100" stroke-dasharray="${Math.max(0, p - 1.2).toFixed(2)} 100" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 44 44)"/>`; off += p; return s; }).join('');
@@ -554,7 +562,7 @@ V.overview = () => {
       <span class="th" style="top:${thY(85)}%">critique 85</span><span class="th" style="top:${thY(60)}%">grave 60</span><span class="th" style="top:${thY(30)}%">moyen 30</span></div>
     <div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div></section>
   <section class="card c-dots"><h3>Activité par client <span class="tag">${per} h</span></h3><div class="dots">${rows}</div>
-    <div class="legend">${['critique','grave','moyen'].map(l => `<div class="c-${l}"><b>${n(l)}</b><span>${LNAME[l]}s</span></div>`).join('')}<div class="c-benin"><b>${fmtN(lvOf.filter(l => l === 'benin').length)}</b><span>Bénins</span></div></div></section>
+    <div class="legend">${['critique','grave','moyen','benin'].map(l => `<div class="c-${l}"><b>${fmtN(byLv[l])}</b><span>${LNAME[l]}s</span></div>`).join('')}</div><p class="note" style="margin-top:8px">Logs reçus sur ${per} h, par niveau.</p></section>
   <section class="card c-tbl"><h3>À traiter maintenant <a href="#incidents">Voir les ${open.length} incidents</a></h3>${incRows(open.slice(0, 6))}</section>
   </div>
   <aside class="ovside">

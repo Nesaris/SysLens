@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.5.2",
+    "date": "2026-11-17",
+    "points": [
+      "Vue d'ensemble : la carte « Activité par client » compte, comme « Logs reçus », tous les logs de la fenêtre par niveau (critiques, graves, moyens, bénins), au lieu de mélanger incidents ouverts et logs gardés en mémoire.",
+      "La part vue par l'IA est rapportée à tous les logs reçus."
+    ]
+  },
+  {
     "version": "0.5.1",
     "date": "2026-11-17",
     "points": [

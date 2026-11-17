@@ -20,11 +20,11 @@ const REF = REF_RAW.map(e => ({ ...e, cat: mkRe(e.cat), re: mkRe(e.re), priv: mk
 // État des incidents décidé par un admin (acquitté, clos), partagé entre navigateurs : logs/incidents-etat.json
 const INC_FILE = path.join(DIR, 'incidents-etat.json'), INC_KEEP = 400 * 864e5;
 let incEtat = {}; try { incEtat = JSON.parse(fs.readFileSync(INC_FILE, 'utf8')) || {}; } catch (e) {}
-function incApi(b) {
+function incApi(b, me) {
   if (!b || typeof b.key !== 'string' || !b.key || b.key.length > 300) throw new Error('Clé d’incident invalide.');
   if (!['ouvert', 'acquitté', 'clos'].includes(b.st)) throw new Error('Statut inconnu.');
   const snap = b.snap && typeof b.snap === 'object' ? Object.fromEntries(['sig', 'cli', 'cliName', 'dev', 'k', 's', 'lv', 'n', 'last'].filter(k => b.snap[k] !== undefined).map(k => [k, typeof b.snap[k] === 'number' ? b.snap[k] : String(b.snap[k]).slice(0, 200)])) : undefined;
-  if (b.st === 'ouvert') delete incEtat[b.key]; else incEtat[b.key] = { st: b.st, t: Date.now(), ...(snap ? { snap } : {}) };
+  if (b.st === 'ouvert') delete incEtat[b.key]; else incEtat[b.key] = { st: b.st, t: Date.now(), ...(me ? { by: me.name } : {}), ...(snap ? { snap } : {}) };
   const lim = Date.now() - INC_KEEP; for (const [k, v] of Object.entries(incEtat)) if (v.t < lim) delete incEtat[k];
   const keys = Object.keys(incEtat); if (keys.length > 20000) keys.sort((a, c) => incEtat[a].t - incEtat[c].t).slice(0, keys.length - 20000).forEach(k => delete incEtat[k]);
   try { fs.writeFileSync(INC_FILE + '.tmp', JSON.stringify(incEtat)); fs.renameSync(INC_FILE + '.tmp', INC_FILE); } catch (e) { throw new Error('Écriture impossible : ' + e.message); }
@@ -411,7 +411,8 @@ async function aiApi(q) {
 const AI_CHAT = { chatgpt: 'https://api.openai.com/v1/chat/completions', mistral: 'https://api.mistral.ai/v1/chat/completions', grok: 'https://api.x.ai/v1/chat/completions', hermes: 'https://inference-api.nousresearch.com/v1/chat/completions' };
 const SUB_TOOL = { chatgpt: 'codex', claude: 'claudecode', gemini: 'geminicli' };
 const aiStats = { last: null };
-async function aiAsk(c, prompt, schema, maxTok = 4000) {
+async function aiAsk(c, prompt, schema, maxTok = 4000, json = true) {
+  const msgs = Array.isArray(prompt) ? prompt : [{ role: 'user', content: prompt }], flat = msgs.map(m => (m.role === 'system' ? '' : m.role === 'user' ? 'Utilisateur : ' : 'Assistant : ') + m.content).join('\n\n');
   const ms = Math.max(30, Math.min(600, +c.timeout || 180)) * 1000, signal = AbortSignal.timeout(ms), model = String(c.model || '').trim();
   const post = async (url, headers, body) => { const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal }).catch(e => { throw new Error(e.name === 'TimeoutError' ? 'Le modèle n’a pas répondu à temps.' : 'Le fournisseur ne répond pas.'); });
     const j = await r.json().catch(() => ({})); if (r.status === 401 || r.status === 403) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + (j.error && j.error.message ? ' : ' + String(j.error.message).slice(0, 200) : '') + '.'); return j; };
@@ -422,18 +423,18 @@ async function aiAsk(c, prompt, schema, maxTok = 4000) {
       const k = setTimeout(() => { p.kill(); ko(new Error('Le modèle n’a pas répondu à temps.')); }, ms);
       p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { err += d; }); p.on('error', e => { clearTimeout(k); ko(new Error(t.bin + ' : ' + e.message)); });
       p.on('close', code => { clearTimeout(k); code === 0 ? ok(strip(out)) : ko(new Error(t.bin + ' a échoué : ' + strip(err || out).trim().split('\n').pop().slice(0, 200))); });
-      p.stdin.end(prompt); }); }
+      p.stdin.end(flat); }); }
   if (!model) throw new Error('Aucun modèle choisi.');
   if (c.mode === 'local' || c.prov === 'ollama') { let u; try { u = new URL('/api/chat', String(c.url || '')); } catch (e) { throw new Error('Adresse Ollama invalide.'); }
     // think: false : les modèles « qui réfléchissent » (qwen3…) répondent directement, 5 à 10 fois plus vite ; le modèle reste chargé 30 min entre deux lots.
     // Schéma JSON imposé et longueur bornée : en simple mode « json », un modèle peut écrire des blancs sans fin jusqu'à remplir son contexte.
-    const j = await post(u, {}, { model, stream: false, think: false, keep_alive: '30m', format: schema || 'json', options: { temperature: 0.1, num_ctx: 8192, num_predict: maxTok }, messages: [{ role: 'user', content: prompt }] });
+    const j = await post(u, {}, { model, stream: false, think: false, keep_alive: '30m', ...(json ? { format: schema || 'json' } : {}), options: { temperature: json ? 0.1 : 0.3, num_ctx: 8192, num_predict: maxTok }, messages: msgs });
     if (j.eval_count && j.eval_duration) aiStats.last = { tokens: j.eval_count, tps: Math.round(j.eval_count / (j.eval_duration / 1e9)), ms: Math.round((j.total_duration || 0) / 1e6) };
     return (j.message && j.message.content) || ''; }
   const key = String(c.key || '').trim(); if (key.length < 20 || /\s/.test(key)) throw new Error('Clé API absente : saisissez-la de nouveau dans Paramètres › Intelligence artificielle.');
-  if (AI_CHAT[c.prov]) { const j = await post(AI_CHAT[c.prov], { authorization: 'Bearer ' + key }, { model, messages: [{ role: 'user', content: prompt }] }); return ((j.choices || [])[0] || {}).message?.content || ''; }
-  if (c.prov === 'claude') { const j = await post('https://api.anthropic.com/v1/messages', { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }); return (j.content || []).map(x => x.text || '').join(''); }
-  if (c.prov === 'gemini') { const j = await post('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model.replace(/^models\//, '')) + ':generateContent', { 'x-goog-api-key': key }, { contents: [{ parts: [{ text: prompt }] }] });
+  if (AI_CHAT[c.prov]) { const j = await post(AI_CHAT[c.prov], { authorization: 'Bearer ' + key }, { model, messages: msgs }); return ((j.choices || [])[0] || {}).message?.content || ''; }
+  if (c.prov === 'claude') { const j = await post('https://api.anthropic.com/v1/messages', { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model, max_tokens: 8000, ...(msgs[0].role === 'system' ? { system: msgs[0].content } : {}), messages: msgs.filter(m => m.role !== 'system') }); return (j.content || []).map(x => x.text || '').join(''); }
+  if (c.prov === 'gemini') { const j = await post('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model.replace(/^models\//, '')) + ':generateContent', { 'x-goog-api-key': key }, { ...(msgs[0].role === 'system' ? { systemInstruction: { parts: [{ text: msgs[0].content }] } } : {}), contents: msgs.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) });
     return (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map(x => x.text || '').join(''); }
   throw new Error('Fournisseur inconnu.'); }
 // --- types à qualifier : classés par l'IA (proposition), puis validés ou corrigés par un technicien
@@ -505,7 +506,7 @@ ${JSON.stringify(items, null, 1)}`;
   return { proposed: n, auto: na, examples: ex.length, left: queue().length, call: aiStats.last }; }
 // Classement en continu côté serveur, sans console ouverte : seulement une IA locale (Ollama), donc sans clé à garder.
 setInterval(() => { if (learned.ia && !classifying && queue().length) { classifying = classify(learned.ia, 12).catch(e => console.log('IA : ' + e.message)).finally(() => { classifying = null; }); } }, 120e3).unref();
-async function refApi(q) {
+async function refApi(q, me) {
   const num = v => v === null || v === '' || v === undefined ? null : Math.round(Math.max(0, Math.min(100, +v)));
   if (q.op === 'classify') { if (classifying) throw new Error('Un classement est déjà en cours.'); classifying = classify(q.ai || {}, q.max, { exemples: q.exemples, reperes: q.reperes }).finally(() => { classifying = null; }); return classifying; }
   if (q.op === 'auto') { learned.auto = { on: !!q.on }; saveLearned(); return { ok: true, stats: learnStats() }; }
@@ -515,9 +516,9 @@ async function refApi(q) {
   if (q.op === 'base') { const k = String(q.k || ''); if (!REF.some(r => r.k === k)) throw new Error('Entrée inconnue.'); const b = num(q.base); if (b === null) delete learned.bases[k]; else learned.bases[k] = b; saveLearned(); return { ok: true }; }
   const key = String(q.key || ''), t = types.get(key), L = learned.types[key]; if (!t && !L) throw new Error('Type inconnu.');
   if (q.op === 'valide' || q.op === 'manuel') { const b = num(q.base != null ? q.base : L && L.base); if (b === null || !Number.isFinite(b)) throw new Error('Note invalide.');
-    if (L && L.st === 'propose' && Number.isFinite(L.base)) learned.decisions.push({ key, prop: L.base, final: b, at: Date.now() });
+    if (L && L.st === 'propose' && Number.isFinite(L.base)) learned.decisions.push({ key, prop: L.base, final: b, at: Date.now(), ...(me ? { by: me.name } : {}) });
     learned.types[key] = { ...(L || {}), st: 'valide', base: b, sig: String(q.sig || (L && L.sig) || (t && t.msg) || key).slice(0, 80), mean: String(q.mean || (L && L.mean) || '').slice(0, 300), act: String(q.act || (L && L.act) || '').slice(0, 300),
-      src: q.op === 'manuel' ? 'Classé par un technicien, ' + new Date().toISOString().slice(0, 10) : ((L && L.src) || 'IA') + ', validé', at: Date.now(), cat: (t && t.cat) || (L && L.cat), msg: (t && t.msg) || (L && L.msg) };
+      src: q.op === 'manuel' ? 'Classé par ' + (me ? me.name : 'un technicien') + ', ' + new Date().toISOString().slice(0, 10) : ((L && L.src) || 'IA') + ', validé' + (me ? ' par ' + me.name : ''), at: Date.now(), cat: (t && t.cat) || (L && L.cat), msg: (t && t.msg) || (L && L.msg) };
     saveLearned(); return { ok: true }; }
   if (q.op === 'rejet') { if (L) { if (L.st === 'propose') learned.decisions.push({ key, prop: L.base, final: -100, at: Date.now() }); L.st = 'rejete'; L.at = Date.now(); saveLearned(); } return { ok: true }; }
   if (q.op === 'oublier') { delete learned.types[key]; saveLearned(); return { ok: true }; }
@@ -527,7 +528,126 @@ function refPayload() { const tys = [...types.values()].sort((a, b) => b.count -
   return { entries: REF_RAW, bases: learned.bases, learned: Object.entries(learned.types).map(([key, v]) => ({ key, k: 'appris:' + shortHash(key), ...v })),
     types: tys.slice(0, 3000), coverage: cov, queue: queue().length, classifying: !!classifying, learn: learnStats() }; }
 const sameOrigin = q => { const o = q.headers.origin; return (!o || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o)) && /application\/json/.test(q.headers['content-type'] || ''); };
+// ---------- Comptes et sessions ----------
+// Tant qu'aucun compte n'existe, la console reste ouverte (installation, essais). Dès que le premier compte est créé
+// (depuis ce poste uniquement), il est administrateur et toute la console demande une connexion.
+const ACC_FILE = path.join(DIR, 'comptes.json'), SESS_FILE = path.join(DIR, 'sessions.json'), CHAT_DIR = path.join(DIR, 'conversations'), SESS_MS = 12 * 3600e3;
+let accounts = { users: {} }; try { accounts = JSON.parse(fs.readFileSync(ACC_FILE, 'utf8')); if (!accounts.users) accounts.users = {}; } catch (e) {}
+let sessions = {}; try { sessions = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8')) || {}; } catch (e) {}
+const writeSecret = (f, o) => { fs.writeFileSync(f + '.part', JSON.stringify(o, null, 1), { mode: 0o600 }); fs.renameSync(f + '.part', f); };
+const saveAcc = () => writeSecret(ACC_FILE, accounts);
+const saveSess = () => { const now = Date.now(); for (const [k, v] of Object.entries(sessions)) if (v.exp < now || !accounts.users[v.uid]) delete sessions[k]; try { writeSecret(SESS_FILE, sessions); } catch (e) {} };
+const hasAccounts = () => Object.keys(accounts.users).length > 0;
+const sha = x => crypto.createHash('sha256').update(x).digest('hex');
+const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 << 20 };
+const hashPw = (pw, salt = crypto.randomBytes(16).toString('hex')) => ({ salt, hash: crypto.scryptSync(pw, salt, 64, SCRYPT).toString('hex') });
+const checkPw = (u, pw) => crypto.timingSafeEqual(crypto.scryptSync(String(pw), u.salt, 64, SCRYPT), Buffer.from(u.hash, 'hex'));
+function pwCheck(pw) { if (typeof pw !== 'string' || pw.length < 10 || pw.length > 200) throw new Error('Mot de passe : 10 caractères au moins.'); return pw; }
+function loginCheck(l) { l = String(l || '').trim().toLowerCase(); if (!/^[a-z0-9._-]{2,32}$/.test(l)) throw new Error('Identifiant : 2 à 32 caractères (lettres, chiffres, . _ -).'); return l; }
+const nameCheck = n => { n = String(n || '').trim().replace(/\s+/g, ' '); if (n.length < 2 || n.length > 60) throw new Error('Nom : 2 à 60 caractères.'); return n; };
+const cookieTok = q => { const m = /(?:^|;\s*)sl_sess=([a-f0-9]{64})/.exec(q.headers.cookie || ''); return m && m[1]; };
+function who(q) { const t = cookieTok(q); if (!t) return null; const s = sessions[sha(t)]; if (!s || s.exp < Date.now()) return null; const u = accounts.users[s.uid];
+  return u ? { id: s.uid, login: u.login, name: u.name, role: u.role } : null; }
+const isLoop = q => /^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(q.socket.remoteAddress || '');
+const pubUser = (id, u) => ({ id, login: u.login, name: u.name, role: u.role, created: u.created });
+function newSession(r, uid) { const t = crypto.randomBytes(32).toString('hex'); sessions[sha(t)] = { uid, exp: Date.now() + SESS_MS }; saveSess();
+  r.setHeader('set-cookie', `sl_sess=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESS_MS / 1000}`); }
+const send = (r, code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
+const readBody = (q, max) => new Promise((ok, ko) => { let b = ''; q.on('data', d => { b += d; if (b.length > max) { ko(new Error('Requête trop longue.')); q.destroy(); } });
+  q.on('end', () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { ko(new Error('Requête illisible.')); } }); });
+const fails = new Map();
+async function authApi(q, r, me, url) {
+  if (url === '/api/auth/moi') return send(r, 200, { user: me && { ...me, mustChange: !!accounts.users[me.id].mustChange }, setup: !hasAccounts() });
+  if (q.method !== 'POST' || !sameOrigin(q)) return send(r, 403, { error: 'Refusé.' });
+  const b = await readBody(q, 4096);
+  if (url === '/api/auth/setup') { if (hasAccounts()) return send(r, 409, { error: 'Le compte administrateur existe déjà : connectez-vous.' });
+    if (!isLoop(q)) return send(r, 403, { error: 'Le premier compte se crée depuis le poste où tourne SysLens.' });
+    const id = crypto.randomUUID(); accounts.users[id] = { login: loginCheck(b.login), name: nameCheck(b.name), role: 'admin', ...hashPw(pwCheck(b.password)), created: Date.now() };
+    saveAcc(); newSession(r, id); return send(r, 200, { user: pubUser(id, accounts.users[id]) }); }
+  if (url === '/api/auth/login') { const login = String(b.login || '').trim().toLowerCase(), key = (q.socket.remoteAddress || '') + '|' + login, now = Date.now(), f = (fails.get(key) || []).filter(t => t > now - 15 * 60e3);
+    if (f.length >= 5) return send(r, 429, { error: 'Trop d’essais : réessayez dans 15 minutes.' });
+    const ent = Object.entries(accounts.users).find(([, u]) => u.login === login), pw = typeof b.password === 'string' ? b.password.slice(0, 200) : '';
+    const ok = ent ? checkPw(ent[1], pw) : (hashPw(pw), false);   // même durée que le compte existe ou non
+    if (!ok) { f.push(now); fails.set(key, f); return send(r, 401, { error: 'Identifiant ou mot de passe incorrect.' }); }
+    fails.delete(key); newSession(r, ent[0]); return send(r, 200, { user: pubUser(ent[0], ent[1]) }); }
+  if (url === '/api/auth/logout') { const t = cookieTok(q); if (t) { delete sessions[sha(t)]; saveSess(); }
+    r.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'sl_sess=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' }); return r.end('{"ok":true}'); }
+  if (!me) return send(r, 401, { error: 'Connexion requise.' });
+  if (url === '/api/auth/motdepasse') { const u = accounts.users[me.id]; if (!checkPw(u, b.old || '')) return send(r, 400, { error: 'Mot de passe actuel incorrect.' });
+    Object.assign(u, hashPw(pwCheck(b.new))); delete u.mustChange; for (const [k, v] of Object.entries(sessions)) if (v.uid === me.id) delete sessions[k];
+    saveAcc(); newSession(r, me.id); return send(r, 200, { ok: true }); }
+  if (url === '/api/comptes') { if (me.role !== 'admin') return send(r, 403, { error: 'Réservé aux administrateurs.' });
+    const U = accounts.users, admins = () => Object.values(U).filter(u => u.role === 'admin').length;
+    if (b.op === 'create') { const login = loginCheck(b.login); if (Object.values(U).some(u => u.login === login)) throw new Error('Cet identifiant existe déjà.');
+      U[crypto.randomUUID()] = { login, name: nameCheck(b.name), role: b.role === 'admin' ? 'admin' : 'tech', ...hashPw(pwCheck(b.password)), mustChange: true, created: Date.now() }; }
+    else if (b.op === 'reset' || b.op === 'delete' || b.op === 'role') { const u = U[b.id]; if (!u) throw new Error('Compte inconnu.');
+      if (b.op === 'reset') { Object.assign(u, hashPw(pwCheck(b.password)), { mustChange: true }); for (const [k, v] of Object.entries(sessions)) if (v.uid === b.id) delete sessions[k]; }
+      if (b.op === 'role') { const role = b.role === 'admin' ? 'admin' : 'tech'; if (u.role === 'admin' && role !== 'admin' && admins() <= 1) throw new Error('Il faut garder au moins un administrateur.'); u.role = role; }
+      if (b.op === 'delete') { if (b.id === me.id) throw new Error('Vous ne pouvez pas supprimer votre propre compte.'); if (u.role === 'admin' && admins() <= 1) throw new Error('Il faut garder au moins un administrateur.');
+        delete U[b.id]; try { fs.unlinkSync(chatFile(b.id)); } catch (e) {} } }
+    else if (b.op !== 'list') throw new Error('Opération inconnue.');
+    if (b.op !== 'list') { saveAcc(); saveSess(); }
+    return send(r, 200, { users: Object.entries(U).map(([id, u]) => ({ ...pubUser(id, u), mustChange: !!u.mustChange })) }); }
+  return send(r, 404, { error: 'Inconnu.' }); }
+
+// ---------- Assistant : une conversation appartient à un seul compte ----------
+// Un fichier par compte (logs/conversations/<compte>.json, lisible par SysLens seul) : un compte ne peut ni lister ni ouvrir
+// les conversations d'un autre, administrateur compris. Avant la création des comptes, tout est au compte « local ».
+const chatFile = uid => path.join(CHAT_DIR, String(uid).replace(/[^a-z0-9-]/gi, '') + '.json');
+const chatLoad = uid => { try { return JSON.parse(fs.readFileSync(chatFile(uid), 'utf8')); } catch (e) { return { convs: [] }; } };
+const chatSave = (uid, d) => { fs.mkdirSync(CHAT_DIR, { recursive: true, mode: 0o700 }); writeSecret(chatFile(uid), d); };
+const chatBusy = new Set();
+function chatContext(cloud) {
+  const mask = x => cloud ? String(x || '').replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, '<ip>').replace(/\b[0-9a-f]{2}([:-][0-9a-f]{2}){5}\b/gi, '<mac>') : String(x || '');
+  const now = Date.now(), h = t => Math.round((now - t) / 60e3) + ' min', ref = k => REF_RAW.find(e => e.k === k) || {};
+  const inc = [...incidents.values()].filter(I => now - I.last < 7 * 864e5).sort((a, b) => b.score - a.score || b.last - a.last).slice(0, 25).map(I => { const st = incEtat[`cli-test|${I.host || I.from}|${I.k}|${isPublic(I.src) ? I.src : ''}`];
+    return `- [${I.score} ${I.level}] ${ref(I.k).sig || I.cat + ' : ' + mask(I.msg)} · équipement ${I.host || mask(I.from)} · ${I.count} log(s), dernier il y a ${h(I.last)} · ${I.status === 'résolu' || I.resolved ? 'revenu à la normale' : st ? (st.st === 'clos' ? 'clos par ' + (st.by || 'un technicien') : st.st) : 'ouvert'}${ref(I.k).act ? ' · à faire : ' + ref(I.k).act : ''}\n  exemple : ${mask(I.msg).slice(0, 160)}`; });
+  const devs = [...devices.values()].slice(0, 40).map(d => `- ${d.host || mask(d.from)} (${famOfProduct(d.product || d.host)}${d.product ? ' ' + d.product : ''}) : dernier log il y a ${h(d.last)}${d.ping ? d.ping.ok ? `, répond au ping (${d.ping.ms} ms)` : d.ping.ip ? ', ne répond pas au ping' : ', pas d’adresse pour le ping' : ''}`);
+  const c24 = [...counts.values()].filter(c => c.t >= now - 864e5), sum = k => c24.reduce((a, c) => a + (c[k] || 0), 0);
+  return `État de SysLens au ${new Date(now).toLocaleString('fr-FR')} :
+Logs reçus sur 24 h : ${sum('n')} (critiques ${sum('c')}, graves ${sum('g')}, moyens ${sum('m')}). Un incident regroupe les logs d'un même problème (type, équipement, source).
+Équipements (${devices.size}) :
+${devs.join('\n') || '- aucun'}
+Incidents des 7 derniers jours, du plus grave au moins grave (${inc.length}) :
+${inc.join('\n') || '- aucun'}`; }
+const CHAT_SYS = `Tu es l'assistant de SysLens, un outil qui collecte et note par gravité les logs des équipements Zyxel (pare-feu, switchs, bornes Wi-Fi) d'un parc client.
+Tu aides un technicien à comprendre et traiter les incidents. Réponds en français, de façon courte et concrète : ce qui se passe, la cause probable, quoi faire, dans l'ordre.
+Appuie-toi sur l'état de SysLens ci-dessous ; cite l'équipement et l'incident concernés. Si l'information n'y est pas, dis-le au lieu d'inventer.
+Ne demande jamais de mot de passe ni de clé, et n'en écris jamais. Pour une manipulation risquée (redémarrage, changement de configuration), préviens avant.`;
+async function chatApi(q, r, me, url) {
+  const uid = me ? me.id : hasAccounts() ? null : 'local'; if (!uid) return send(r, 401, { error: 'Connexion requise.' });
+  const d = chatLoad(uid), id = url.split('/')[3];
+  if (q.method === 'GET') { if (!id) return send(r, 200, { convs: d.convs.map(c => ({ id: c.id, title: c.title, updated: c.updated, n: c.msgs.length })).sort((a, b) => b.updated - a.updated) });
+    const c = d.convs.find(x => x.id === id); return c ? send(r, 200, c) : send(r, 404, { error: 'Conversation introuvable.' }); }
+  if (q.method !== 'POST' || !sameOrigin(q)) return send(r, 403, { error: 'Refusé.' });
+  const b = await readBody(q, 64 << 10);
+  if (b.op === 'delete' || b.op === 'rename') { const c = d.convs.find(x => x.id === b.id); if (!c) return send(r, 404, { error: 'Conversation introuvable.' });
+    if (b.op === 'delete') d.convs = d.convs.filter(x => x !== c); else c.title = String(b.title || '').trim().slice(0, 80) || c.title; chatSave(uid, d); return send(r, 200, { ok: true }); }
+  if (b.op !== 'send') return send(r, 400, { error: 'Opération inconnue.' });
+  const text = String(b.text || '').trim().slice(0, 4000); if (!text) return send(r, 400, { error: 'Message vide.' });
+  if (chatBusy.has(uid)) return send(r, 429, { error: 'Une réponse est déjà en cours.' });
+  let c = b.id ? d.convs.find(x => x.id === b.id) : null; if (b.id && !c) return send(r, 404, { error: 'Conversation introuvable.' });
+  if (!c) { c = { id: crypto.randomBytes(12).toString('hex'), title: text.replace(/\s+/g, ' ').slice(0, 60), created: Date.now(), updated: Date.now(), msgs: [] }; d.convs.push(c);
+    if (d.convs.length > 200) d.convs.sort((a, x) => x.updated - a.updated).splice(200); }
+  const ai = b.ai || {}, cloud = ai.mode !== 'local' && ai.prov !== 'ollama';
+  c.msgs.push({ role: 'user', content: text, t: Date.now() }); chatBusy.add(uid);
+  try { const hist = c.msgs.slice(-20).map(m => ({ role: m.role, content: m.content }));
+    const out = await aiAsk(ai, [{ role: 'system', content: CHAT_SYS + '\n\n' + chatContext(cloud) }, ...hist], null, 1500, false);
+    c.msgs.push({ role: 'assistant', content: String(out || '').trim() || '(réponse vide)', t: Date.now(), model: (ai.model || ai.prov || '') + (aiStats.last && (ai.mode === 'local' || ai.prov === 'ollama') ? ` · ${aiStats.last.tps} tok/s` : '') }); }
+  catch (e) { c.msgs.push({ role: 'assistant', content: 'Je n’ai pas pu répondre : ' + e.message, t: Date.now(), error: true }); }
+  finally { chatBusy.delete(uid); }
+  c.updated = Date.now(); chatSave(uid, d); return send(r, 200, c); }
+
 const webSrv = http.createServer((q, r) => {
+  const url = q.url.split('?')[0], me = who(q);
+  if (url.startsWith('/api/auth/') || url === '/api/comptes') return void authApi(q, r, me, url).catch(e => send(r, 400, { error: e.message }));
+  if (url === '/api/chat' || url.startsWith('/api/chat/')) return void chatApi(q, r, me, url).catch(e => send(r, 400, { error: e.message }));
+  // Avec des comptes, tout le reste demande une session. Seule exception : la mise à jour lancée en ligne de commande sur ce poste
+  // (pas de navigateur : ni Origin ni cookie) ; elle n'installe de toute façon qu'une version signée du dépôt.
+  if (hasAccounts() && !me && !url.startsWith('/console') && !url.startsWith('/ext/')) {
+    const cli = url === '/api/update' && q.method === 'POST' && isLoop(q) && !q.headers.origin && !q.headers.cookie;
+    if (!cli) { if (url === '/') { r.writeHead(302, { location: '/console' }); return r.end(); } return send(r, 401, { error: 'Connexion requise.' }); } }
+  q.me = me;
   if (q.url === '/api/version') { let news = []; try { news = JSON.parse(fs.readFileSync(path.join(__dirname, 'nouveautes.json'), 'utf8')).slice(0, 5); } catch (e) {} r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ ...upd, news })); }
   else if (q.url === '/api/update' && q.method === 'POST') { const json = o => { r.writeHead(sameOrigin(q) ? 200 : 403, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json({ error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 256) q.destroy(); });
@@ -545,12 +665,12 @@ const webSrv = http.createServer((q, r) => {
   else if (q.url === '/api/incidents-etat' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 4096) q.destroy(); });
-    q.on('end', () => { try { json(200, incApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
+    q.on('end', () => { try { json(200, incApi(JSON.parse(body), q.me)); } catch (e) { json(400, { error: e.message }); } }); }
   else if (q.url === '/api/referentiel') { r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(refPayload())); }
   else if (q.url === '/api/ref' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 16384) q.destroy(); });
-    q.on('end', async () => { try { json(200, await refApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
+    q.on('end', async () => { try { json(200, await refApi(JSON.parse(body), q.me)); } catch (e) { json(400, { error: e.message }); } }); }
   else if (q.url === '/api/tg' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' });

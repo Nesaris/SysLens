@@ -307,6 +307,21 @@ tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation
 .rng input{accent-color:var(--acc)}
 @media(max-width:780px){.looks{grid-template-columns:1fr}.walls{grid-template-columns:repeat(3,minmax(0,1fr))}}
 table.treat tr.exp>td{background:var(--panel2);border-radius:0 0 10px 10px}table.treat tr[aria-expanded=true]>td{background:var(--panel2)}table.treat tr.sep>td{padding-top:18px;border-bottom:0}table.logs-in td{padding:6px 8px;vertical-align:top}table.logs-in{width:100%}table.logs-in td:first-child{white-space:nowrap;color:var(--mute);width:92px}table.logs-in td:nth-child(2){width:56px}
+.auth{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:var(--bg);padding:16px;overflow-y:auto}
+.auth-card{width:min(420px,100%);display:grid;gap:14px}.auth-card h1{font-size:26px;margin:4px 0 0}.auth-card label{display:grid;gap:6px;font-size:14px}.auth-card .btn{min-height:44px}
+.err{color:var(--crit);min-height:1.2em;margin:0;font-size:14px}
+#chatBtn{position:fixed;right:20px;bottom:20px;z-index:4;border-radius:999px;min-height:48px;padding:10px 18px;display:flex;gap:8px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.chat{position:fixed;top:0;right:0;bottom:0;width:min(470px,100%);background:var(--panel);border-left:1px solid var(--line2);z-index:7;display:none;flex-direction:column}.chat.on{display:flex}
+.chat header{display:flex;gap:8px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}.chat header select{flex:1;min-width:0}
+.chat-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:90%;padding:10px 14px;border-radius:14px;line-height:1.55;font-size:14.5px;overflow-wrap:anywhere}.msg p{margin:0 0 6px}.msg p:last-child{margin:0}.msg ul{margin:4px 0;padding-left:20px}
+.msg.u{align-self:flex-end;background:var(--panel2)}.msg.a{align-self:flex-start;border:1px solid var(--line2)}.msg.err{border-color:var(--crit)}.msg .meta{font-size:12px;color:var(--mute);margin-top:6px}
+.msg code{font-family:var(--mono);font-size:13px;background:var(--panel2);padding:1px 5px;border-radius:5px}
+.chat form{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);align-items:flex-end}
+.chat textarea{flex:1;resize:none;background:var(--bg);border:1px solid var(--line2);border-radius:12px;padding:10px 12px;color:var(--ink);font:inherit;max-height:160px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}.chips button{border-radius:999px;border:1px solid var(--line2);background:var(--panel2);padding:8px 12px;cursor:pointer;color:var(--ink);text-align:left}
+.dots::after{content:'…';animation:blink 1.2s infinite}@keyframes blink{50%{opacity:.2}}
+@media (prefers-reduced-motion:reduce){.dots::after{animation:none}}
 @media (prefers-reduced-motion:reduce){.prog .p-run i{animation:none;border-top-color:var(--line2)}tr.newrow td{animation:none}}
 @media(max-width:640px){.kpis{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){.drawer,.drawer.pop,.drawer.pop.open{transition:none}.xwait i{animation:none}}
@@ -343,7 +358,7 @@ table.treat tr.exp>td{background:var(--panel2);border-radius:0 0 10px 10px}table
     <button class="scope" id="scopeBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="pick"><span>Périmètre</span><b id="scopeName">Tous les clients</b><kbd>Ctrl K</kbd></button>
     <nav id="nav" aria-label="Navigation principale"></nav>
     <div class="health" id="health" aria-label="État des services"></div>
-    <div class="me"><span class="av" aria-hidden="true">AR</span><div><b>Admin réseau</b><span id="meSub">Session de démonstration</span></div></div>
+    <div class="me" role="button" tabindex="0" title="Mon compte" style="cursor:pointer" data-goto-route="settings"><span class="av" aria-hidden="true">AR</span><div><b>Admin réseau</b><span id="meSub">Session de démonstration</span></div></div>
     <p class="demo" id="demoNote">Données fictives · IP des plages de documentation</p>
   </aside>
   <div>
@@ -359,6 +374,8 @@ table.treat tr.exp>td{background:var(--panel2);border-radius:0 0 10px 10px}table
 <div class="veil" id="veil"></div>
 <aside class="drawer" id="drawer" aria-label="Détail de l'incident"></aside>
 <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle"></div>
+<button class="btn p" id="chatBtn" type="button" aria-controls="chat"><svg width="17" height="17" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Assistant</button>
+<aside class="chat" id="chat" aria-label="Assistant"></aside>
 <script>
 {
 const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -571,7 +588,7 @@ function treatRows(open, done) {
   if (!open.length && !done.length) return `<p class="empty">Rien à traiter.</p>`;
   const row = (i, isDone) => { const on = expInc === i.key;
     return `<tr class="click" data-exp="${esc(i.key)}" aria-expanded="${on}"><td data-l="Score">${scChip(i.sc.s)}</td><td data-l="Incident">${esc(incName(i))}${i.reopened ? ' <span class="tag">rouvert</span>' : ''}</td><td data-l="Client">${esc(cName(i.last.cli))}</td><td data-l="Équipement" class="mono">${esc(i.last.dev)}</td><td data-l="Logs" class="num">${i.list.length || '—'}</td><td data-l="Statut">${isDone ? `<span class="tag ok">${i.by === 'auto' ? 'revenu à la normale' : 'clos'}</span>` : i.st === 'acquitté' ? '<span class="tag">acquitté</span>' : '<span class="tag">à traiter</span>'}</td><td data-l="Dernier" class="r">${ago(isDone ? i.closedAt || i.last.t : i.last.t)} <span aria-hidden="true">${on ? '▾' : '▸'}</span></td></tr>` +
-      (on ? `<tr class="exp"><td colspan="7"><div style="padding:6px 4px 12px">${incLogs(i)}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${isDone ? (i.by === 'auto' ? '' : `<button class="btn" data-ist="${esc(i.key)}|ouvert">Rouvrir</button>`) : `${i.st === 'acquitté' ? '' : `<button class="btn" data-ist="${esc(i.key)}|acquitté">Acquitter</button>`}<button class="btn p" data-ist="${esc(i.key)}|clos">Clore et archiver</button>`}<button class="btn" data-inc="${esc(i.key)}">Détail du score</button></div></div></td></tr>` : ''); };
+      (on ? `<tr class="exp"><td colspan="7"><div style="padding:6px 4px 12px">${incLogs(i)}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${isDone ? (i.by === 'auto' ? '' : `<button class="btn" data-ist="${esc(i.key)}|ouvert">Rouvrir</button>`) : `${i.st === 'acquitté' ? '' : `<button class="btn" data-ist="${esc(i.key)}|acquitté">Acquitter</button>`}<button class="btn p" data-ist="${esc(i.key)}|clos">Clore et archiver</button>`}<button class="btn" data-inc="${esc(i.key)}">Détail du score</button><button class="btn" data-askai="${esc(`Explique-moi l’incident « ${incName(i)} » sur ${i.last.dev} (${cName(i.last.cli)}) et dis-moi quoi faire.`)}">Demander à l’assistant</button></div></div></td></tr>` : ''); };
   return `<table class="stack treat"><thead><tr><th>Score</th><th>Incident</th><th>Client</th><th>Équipement</th><th class="num">Logs</th><th>Statut</th><th class="r">Dernier</th></tr></thead><tbody>${open.map(i => row(i, false)).join('')}${done.length ? `<tr class="sep"><td colspan="7"><span class="note">Réglés sur la période · ${done.length}</span></td></tr>` + done.map(i => row(i, true)).join('') : ''}</tbody></table>`;
 }
 const V = {};
@@ -754,7 +771,7 @@ function lookApply() {
 lookApply();
 V.settings = () => {
   const L = LOOK, sw = (k, on, label) => `<button type="button" class="seg-sw" role="switch" aria-checked="${on}" data-look="${k}" aria-label="${esc(label)}" style="position:relative;width:46px;height:28px;border-radius:14px;border:0;cursor:pointer;flex:none;background:${on ? 'var(--acc)' : 'var(--line2)'}"><span style="position:absolute;top:4px;left:${on ? 22 : 4}px;width:20px;height:20px;border-radius:10px;background:${on ? 'var(--on-acc)' : 'var(--mute)'}"></span></button>`;
-  return `<h1>Réglages</h1><p class="sub">Apparence de la console. Gardée dans ce navigateur.</p>
+  return `<h1>Réglages</h1><p class="sub">${LIVEMODE ? 'Votre compte, ceux de l’équipe et l’apparence de la console.' : 'Apparence de la console. Gardée dans ce navigateur.'}</p>${accountPanels()}
   <section class="panel" style="margin-top:18px"><h2>Design</h2>
     <div class="looks" role="radiogroup" aria-label="Design">
       <button type="button" class="lk" role="radio" aria-checked="${L.design === 'classique'}" data-look="design:classique"><span class="mk cl"></span><b>Classique</b><span class="note">Menu à gauche, cartes et jauges.</span></button>
@@ -1020,6 +1037,9 @@ const SUBS = {codex: {name: 'Codex', plan: 'ChatGPT (Plus, Pro, Business ou Ente
 const ai = {prov: 'ollama', mode: 'local', url: 'http://ia.exemple.local:11434', model: 'qwen3.6:27b', timeout: 60, pseudo: true, allowed: [],
   provName() { const p = AIP.find(x => x.id === this.prov); return (p ? p.name : this.prov) + ' ' + ({local: '(local)', api: '(API)', sub: '(abonnement ' + (p && p.sub ? SUBS[p.sub].name : '') + ')'}[this.mode] || ''); }};
 const aiCloud = () => ai.mode !== 'local';
+// Réglages de l'IA gardés dans ce navigateur, jamais la clé API (à ressaisir après un rechargement si on passe par une clé).
+function aiPersist() { try { localStorage.setItem('syslens-ia', JSON.stringify({prov: ai.prov, mode: ai.mode, model: ai.model, url: ai.url, timeout: ai.timeout})); } catch (e) {} }
+try { const v = JSON.parse(localStorage.getItem('syslens-ia') || 'null'); if (v && v.prov && v.model) { Object.assign(ai, v, {saved: true}); if (XS[v.prov]) Object.assign(XS[v.prov], {mode: v.mode, model: v.model, url: v.url || XS[v.prov].url}); } } catch (e) {}
 const aiCall = async body => { const r = await fetch('/api/ai', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; };
 const aiNew = p => ({mode: p.modes.length === 1 ? p.modes[0] : '', url: 'http://localhost:11434', key: '', models: null, model: '', ack: false, log: false, auth: {}, cli: '', cliSt: null, code: '', auto: ''});
 const MODEX = {local: 'En local (Ollama)', api: 'Clé API', sub: 'Abonnement'};
@@ -1087,7 +1107,7 @@ document.addEventListener('change', e => { if (!xw || !xw.ai || !e.target.closes
   if (t.dataset.kmap) { s[t.dataset.kmap][t.dataset.mk] = t.value; xOk(); } });
 document.addEventListener('input', e => { if (xw && xw.ai && e.target.dataset.kmap && e.target.closest('#drawer')) { XS[xw.id][e.target.dataset.kmap][e.target.dataset.mk] = e.target.value; xOk(); } });
 function aiSave() { const p = AIP.find(x => x.id === xw.id), s = XS[xw.id];
-  ai.prov = p.id; ai.mode = s.mode; ai.model = s.model; ai.url = s.mode === 'local' ? s.url : ''; ai.allowed = s.mode === 'local' ? [] : Object.keys(s.auth).filter(id => s.auth[id].trim()); ai.saved = true;
+  ai.prov = p.id; ai.mode = s.mode; ai.model = s.model; ai.url = s.mode === 'local' ? s.url : ''; ai.allowed = s.mode === 'local' ? [] : Object.keys(s.auth).filter(id => s.auth[id].trim()); ai.saved = true; aiPersist();
   if (LIVEMODE && REFD.queue) setTimeout(() => refClassify(true), 1000); }
 // --- détail d'incident
 function openInc(key) {
@@ -1420,9 +1440,104 @@ async function refClassify(auto) { if (!ai.saved) { if (!auto) { refMsg = 'Confi
   try { const j = await refPost({op: 'classify', ai: aiCfg(), max: 25}); aiLog.push({t: Date.now(), cli: 'cli-test', inc: 'Classement de ' + j.proposed + ' type(s) de log', p: ai.provName(), n: '—'});
     refMsg = j.proposed + ' type(s) classé(s) par l’IA, à valider ci-dessous' + (j.left ? ` (${j.left} encore en file)` : '') + '.'; } catch (e) { refMsg = 'IA : ' + e.message; }
   await refLoad(); render(); }
+
+// ---------- Comptes : premier compte, connexion, mot de passe provisoire ----------
+let ME = null;
+const _fetch = window.fetch.bind(window);
+window.fetch = async (u, o) => { const r = await _fetch(u, o); if (r.status === 401 && LIVEMODE && !String(u).startsWith('/api/auth/') && !$('#auth')) authShow('login'); return r; };
+function authShow(mode, msg = '') {
+  let el = $('#auth'); if (!el) { el = document.createElement('div'); el.id = 'auth'; el.className = 'auth'; document.body.append(el); }
+  const f = (id, label, type, ac) => `<label>${label}<input id="${id}" type="${type}" autocomplete="${ac}" required></label>`;
+  const T = {setup: ['Créer le compte administrateur', 'Premier lancement. Ce compte crée ensuite ceux des autres techniciens. Chacun se connecte pour ouvrir SysLens, et ses conversations avec l’assistant ne sont visibles que par lui.', 'Créer le compte'],
+    login: ['Connexion', 'Connectez-vous pour ouvrir SysLens.', 'Se connecter'], change: ['Choisissez votre mot de passe', 'Votre administrateur vous a donné un mot de passe provisoire : remplacez-le.', 'Enregistrer']}[mode];
+  el.innerHTML = `<form class="panel auth-card" id="authForm" data-mode="${mode}" novalidate><svg width="36" height="36" viewBox="0 0 224 224" aria-hidden="true"><path fill="currentColor" d="M183 24H67A53 53 0 0 0 67 130H157A17 17 0 0 1 157 164H67V200H157A53 53 0 0 0 157 94H67A17 17 0 0 1 67 60H183Z"/><path fill="#E8590C" d="M15 182A18 18 0 1 0 51 182A18 18 0 1 0 15 182Z"/></svg><h1>${T[0]}</h1><p class="sub" style="margin:0">${T[1]}</p>
+  ${mode === 'setup' ? f('aName', 'Nom affiché', 'text', 'name') + f('aLogin', 'Identifiant', 'text', 'username') + f('aPw', 'Mot de passe (10 caractères au moins)', 'password', 'new-password') + f('aPw2', 'Confirmer le mot de passe', 'password', 'new-password')
+    : mode === 'change' ? f('aOld', 'Mot de passe provisoire', 'password', 'current-password') + f('aPw', 'Nouveau mot de passe (10 caractères au moins)', 'password', 'new-password') + f('aPw2', 'Confirmer', 'password', 'new-password')
+    : f('aLogin', 'Identifiant', 'text', 'username') + f('aPw', 'Mot de passe', 'password', 'current-password')}
+  <p class="err" role="alert">${esc(msg)}</p><button class="btn p" type="submit">${T[2]}</button></form>`;
+  setTimeout(() => { const i = el.querySelector('input'); if (i) i.focus(); }); }
+document.addEventListener('submit', async e => { if (e.target.id !== 'authForm') return; e.preventDefault();
+  const F = e.target, m = F.dataset.mode, v = id => (F.querySelector('#' + id) || {}).value || '', err = F.querySelector('.err'), btn = F.querySelector('button');
+  if (m !== 'login' && v('aPw') !== v('aPw2')) { err.textContent = 'Les deux mots de passe ne sont pas identiques.'; return; }
+  const [url, body] = m === 'setup' ? ['/api/auth/setup', {name: v('aName'), login: v('aLogin'), password: v('aPw')}] : m === 'change' ? ['/api/auth/motdepasse', {old: v('aOld'), new: v('aPw')}] : ['/api/auth/login', {login: v('aLogin'), password: v('aPw')}];
+  btn.disabled = true; err.textContent = '';
+  try { const r = await _fetch(url, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status); location.reload(); }
+  catch (x) { btn.disabled = false; err.textContent = x.message; } });
+async function authInit() { if (!LIVEMODE) return true; try { const j = await (await _fetch('/api/auth/moi', {cache: 'no-store'})).json();
+  if (j.setup) { authShow('setup'); return false; } if (!j.user) { authShow('login'); return false; } ME = j.user; meRender(); if (ME.mustChange) { authShow('change'); return false; } return true; } catch (e) { return true; } }
+function meRender() { if (!ME) return; $('.me .av').textContent = ME.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase(); $('.me b').textContent = ME.name; $('#meSub').textContent = ME.role === 'admin' ? 'Administrateur' : 'Technicien'; }
+let ACCS = null, accMsg = '', accDel = null;
+async function accPost(b) { const r = await fetch('/api/comptes', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(b)}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status); ACCS = j.users; return j; }
+function accountPanels() { if (!LIVEMODE || !ME) return '';
+  if (ME.role === 'admin' && !ACCS) accPost({op: 'list'}).then(render).catch(() => {});
+  const pw = (id, l, ac) => `<label style="display:grid;gap:6px">${l}<input id="${id}" type="password" autocomplete="${ac}"></label>`;
+  return `<section class="panel" style="margin-top:16px"><h2>Mon compte</h2><p class="note" style="margin:0 0 12px">${esc(ME.name)} · ${esc(ME.login)} · ${ME.role === 'admin' ? 'administrateur' : 'technicien'}</p>
+    <form id="pwForm" style="display:grid;gap:10px;max-width:420px">${pw('pOld', 'Mot de passe actuel', 'current-password')}${pw('pNew', 'Nouveau mot de passe (10 caractères au moins)', 'new-password')}${pw('pNew2', 'Confirmer', 'new-password')}
+    <p class="err" id="pwErr" role="alert"></p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn p" type="submit">Changer le mot de passe</button><button class="btn" type="button" data-logout>Se déconnecter</button></div></form></section>
+  ${ME.role === 'admin' ? `<section class="panel" style="margin-top:16px"><h2>Comptes</h2><p class="note" style="margin:0 0 10px">Chacun se connecte avec son compte. Les conversations avec l’assistant restent privées : un administrateur ne peut pas les lire. Un nouveau compte reçoit un mot de passe provisoire, à changer à la première connexion.</p>
+    ${ACCS ? `<table class="stack"><thead><tr><th>Nom</th><th>Identifiant</th><th>Rôle</th><th>Créé le</th><th></th></tr></thead><tbody>${ACCS.map(u => `<tr><td data-l="Nom">${esc(u.name)}${u.id === ME.id ? ' <span class="tag">vous</span>' : ''}${u.mustChange ? ' <span class="tag">mot de passe provisoire</span>' : ''}</td><td data-l="Identifiant" class="mono">${esc(u.login)}</td><td data-l="Rôle">${u.role === 'admin' ? 'administrateur' : 'technicien'}</td><td data-l="Créé">${new Date(u.created).toLocaleDateString('fr-FR')}</td>
+      <td class="r">${u.id === ME.id ? '' : `<button class="btn" data-acc="role" data-id="${u.id}" data-role="${u.role === 'admin' ? 'tech' : 'admin'}">${u.role === 'admin' ? 'Passer technicien' : 'Passer administrateur'}</button> <button class="btn" data-acc="reset" data-id="${u.id}">Mot de passe provisoire</button> <button class="btn" data-acc="delete" data-id="${u.id}">${accDel === u.id ? 'Confirmer la suppression' : 'Supprimer'}</button>`}</td></tr>`).join('')}</tbody></table>` : '<p class="note">Chargement…</p>'}
+    <form id="accForm" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:16px;align-items:end">
+      <label style="display:grid;gap:6px">Nom<input id="cName" type="text" autocomplete="off"></label><label style="display:grid;gap:6px">Identifiant<input id="cLogin" type="text" autocomplete="off"></label>
+      <label style="display:grid;gap:6px">Mot de passe provisoire<input id="cPw" type="password" autocomplete="new-password"></label><label style="display:grid;gap:6px">Rôle<select id="cRole"><option value="tech">Technicien</option><option value="admin">Administrateur</option></select></label>
+      <button class="btn p" type="submit">Créer le compte</button></form><p class="note" role="status" id="accMsg">${esc(accMsg)}</p></section>` : ''}`; }
+document.addEventListener('submit', async e => {
+  if (e.target.id === 'pwForm') { e.preventDefault(); const v = id => $('#' + id).value, err = $('#pwErr'); if (v('pNew') !== v('pNew2')) { err.textContent = 'Les deux mots de passe ne sont pas identiques.'; return; }
+    const r = await fetch('/api/auth/motdepasse', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({old: v('pOld'), new: v('pNew')})}); const j = await r.json().catch(() => ({}));
+    if (!r.ok) { err.textContent = j.error || 'Erreur'; return; } e.target.reset(); err.textContent = ''; accMsg = 'Mot de passe changé. Vos autres sessions sont déconnectées.'; render(); }
+  if (e.target.id === 'accForm') { e.preventDefault(); const v = id => $('#' + id).value;
+    try { await accPost({op: 'create', name: v('cName'), login: v('cLogin'), password: v('cPw'), role: v('cRole')}); accMsg = 'Compte créé : donnez-lui son identifiant et son mot de passe provisoire.'; } catch (x) { accMsg = x.message; } render(); } });
+document.addEventListener('click', async e => { const t = e.target;
+  if (t.closest('[data-goto-route]')) { location.hash = t.closest('[data-goto-route]').dataset.gotoRoute; return; }
+  if (t.closest('[data-logout]')) { await _fetch('/api/auth/logout', {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'}); location.reload(); return; }
+  const a = t.closest('[data-acc]'); if (!a) return; const op = a.dataset.acc, id = a.dataset.id;
+  if (op === 'delete' && accDel !== id) { accDel = id; render(); return; }
+  if (op === 'reset') { const box = a.parentElement; box.innerHTML = `<form data-resetfor="${id}" style="display:flex;gap:6px;justify-content:flex-end"><input type="password" autocomplete="new-password" placeholder="Mot de passe provisoire" aria-label="Mot de passe provisoire" style="max-width:220px"><button class="btn p">Enregistrer</button></form>`; box.querySelector('input').focus(); return; }
+  try { await accPost(op === 'role' ? {op, id, role: a.dataset.role} : {op, id}); accMsg = op === 'delete' ? 'Compte supprimé, avec ses conversations.' : 'Rôle changé.'; } catch (x) { accMsg = x.message; } accDel = null; render(); });
+document.addEventListener('submit', async e => { const f = e.target.closest('[data-resetfor]'); if (!f) return; e.preventDefault();
+  try { await accPost({op: 'reset', id: f.dataset.resetfor, password: f.querySelector('input').value}); accMsg = 'Mot de passe provisoire enregistré : à changer à la prochaine connexion.'; } catch (x) { accMsg = x.message; } render(); });
+
+// ---------- Assistant : conversations privées, une par sujet ----------
+const CH = {open: false, convs: [], cur: null, busy: false, err: ''};
+const md = t => { const lines = esc(t).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').split('\n'); let h = '', ul = false;
+  for (const l of lines) { const m = /^\s*(?:[-*•]|\d+[.)])\s+(.*)/.exec(l); if (m) { if (!ul) { h += '<ul>'; ul = true; } h += `<li>${m[1]}</li>`; } else { if (ul) { h += '</ul>'; ul = false; } if (l.trim()) h += `<p>${l}</p>`; } }
+  return h + (ul ? '</ul>' : ''); };
+async function chatList() { try { const j = await (await fetch('/api/chat', {cache: 'no-store'})).json(); CH.convs = j.convs || []; } catch (e) {} }
+function chatRender() { const el = $('#chat'); if (!CH.open) { el.classList.remove('on'); return; } el.classList.add('on');
+  const live = LIVEMODE, cloud = ai.saved && aiCloud(), msgs = CH.cur ? CH.cur.msgs : [];
+  el.innerHTML = `<header><b style="flex:none">Assistant</b><select id="chatSel" aria-label="Conversation" ${live ? '' : 'disabled'}><option value="">Nouvelle conversation</option>${CH.convs.map(c => `<option value="${c.id}" ${CH.cur && CH.cur.id === c.id ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}</select>
+    ${CH.cur ? `<button class="btn" data-chat="del" title="Supprimer cette conversation">Supprimer</button>` : ''}<button class="btn" data-chat="close" aria-label="Fermer">Fermer</button></header>
+  <div class="chat-msgs" id="chatMsgs">${!live ? '<p class="note">L’assistant répond sur les données réelles du récepteur : ouvrez la console depuis SysLens.</p>' : !ai.saved ? '<p class="note">Configurez d’abord une IA dans Paramètres › Intelligence artificielle (par exemple qwen3:8b avec Ollama, sur ce Mac).</p>' : ''}
+    ${!msgs.length && live && ai.saved ? `<p class="note" style="margin:0">Posez une question sur vos incidents, vos équipements ou un log. L’assistant voit l’état actuel de SysLens.</p><div class="chips">${['Qu’est-ce que je dois traiter en premier ?', 'Résume les incidents des dernières 24 h', 'Un équipement a-t-il un problème en ce moment ?'].map(x => `<button type="button" data-chips="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}
+    ${msgs.map(m => `<div class="msg ${m.role === 'user' ? 'u' : 'a'}${m.error ? ' err' : ''}">${m.role === 'user' ? `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>` : md(m.content)}${m.role === 'assistant' && m.model ? `<div class="meta">${esc(m.model)}</div>` : ''}</div>`).join('')}
+    ${CH.busy ? '<div class="msg a"><span class="note dots">L’assistant écrit</span></div>' : ''}${CH.err ? `<p class="err">${esc(CH.err)}</p>` : ''}</div>
+  <form id="chatForm"><textarea id="chatIn" rows="2" placeholder="Votre question…" aria-label="Votre question" ${live && ai.saved && !CH.busy ? '' : 'disabled'}></textarea><button class="btn p" ${live && ai.saved && !CH.busy ? '' : 'disabled'}>Envoyer</button></form>
+  <p class="note" style="margin:0;padding:0 14px 12px">${live && ai.saved ? esc(ai.provName() + ' · ' + ai.model) + (cloud ? ' · adresses IP et MAC masquées' : ' · sur ce poste') + ' · ' : ''}${ME ? 'Visible par vous seul.' : ''}</p>`;
+  const box = $('#chatMsgs'); box.scrollTop = box.scrollHeight; }
+async function chatOpen(prefill) { CH.open = true; $('#chatBtn').setAttribute('aria-expanded', 'true'); if (LIVEMODE) await chatList(); chatRender(); const i = $('#chatIn'); if (i) { if (prefill) i.value = prefill; i.focus(); } }
+async function chatSend(text) { text = String(text || '').trim(); if (!text || CH.busy) return;
+  const cur = CH.cur || {msgs: []}; CH.cur = {...cur, msgs: [...cur.msgs, {role: 'user', content: text}]}; CH.busy = true; CH.err = ''; chatRender();
+  try { const r = await fetch('/api/chat', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({op: 'send', id: cur.id, text, ai: aiCfg()})}); const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status); CH.cur = j; await chatList(); } catch (x) { CH.err = x.message; CH.cur = cur.id ? cur : null; }
+  CH.busy = false; chatRender(); const i = $('#chatIn'); if (i) i.focus(); }
+$('#chatBtn').addEventListener('click', () => CH.open ? (CH.open = false, chatRender()) : chatOpen());
+document.addEventListener('click', async e => { const t = e.target;
+  const ask = t.closest('[data-askai]'); if (ask) { CH.cur = null; return chatOpen(ask.dataset.askai); }
+  if (!t.closest('#chat')) return;
+  const ch = t.closest('[data-chips]'); if (ch) return chatSend(ch.dataset.chips);
+  const b = t.closest('[data-chat]'); if (!b) return;
+  if (b.dataset.chat === 'close') { CH.open = false; chatRender(); $('#chatBtn').focus(); }
+  if (b.dataset.chat === 'del' && CH.cur) { if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Confirmer'; return; }
+    await fetch('/api/chat', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({op: 'delete', id: CH.cur.id})}); CH.cur = null; await chatList(); chatRender(); } });
+document.addEventListener('change', async e => { if (e.target.id !== 'chatSel') return; const id = e.target.value;
+  if (!id) { CH.cur = null; chatRender(); return; } try { CH.cur = await (await fetch('/api/chat/' + id, {cache: 'no-store'})).json(); } catch (x) { CH.err = x.message; } chatRender(); });
+document.addEventListener('submit', e => { if (e.target.id !== 'chatForm') return; e.preventDefault(); const i = $('#chatIn'); chatSend(i.value); });
+document.addEventListener('keydown', e => { if (e.target.id === 'chatIn' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(e.target.value); }
+  if (e.key === 'Escape' && CH.open && !$('#auth')) { CH.open = false; chatRender(); } });
+authInit().then(ok => { if (!ok) return;
 if (LIVEMODE) { incLoad(); setInterval(incLoad, 30e3); refLoad(); setInterval(refLoad, 30e3); setInterval(() => refClassify(true), 10 * 60e3);
-  updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; refLoad().finally(() => { livePoll(); setInterval(livePoll, 3000); }); }
-render();
+  updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; if (!ME) $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; refLoad().finally(() => { livePoll(); setInterval(livePoll, 3000); }); }
+render(); });
 }
 </script>
 </body>

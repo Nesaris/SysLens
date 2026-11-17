@@ -66,6 +66,12 @@ Sur un pare-feu ZLD (USG FLEX, ATP, USG) :
 
 Réglez aussi l'heure (NTP et fuseau) : SysLens horodate chaque log à la réception, mais une heure fausse sur l'équipement gêne la lecture des logs bruts.
 
+## Comptes et assistant
+
+Au premier lancement, la console demande de créer le compte administrateur (depuis le poste où tourne SysLens). Ensuite, chacun se connecte avec son compte ; l'administrateur crée les comptes des techniciens dans Réglages, avec un mot de passe provisoire à changer à la première connexion. Clôtures d'incidents et validations du référentiel sont enregistrées au nom de la personne.
+
+Le bouton **Assistant**, en bas à droite, ouvre une conversation avec l'IA configurée dans Paramètres › Intelligence artificielle (par exemple qwen3:8b avec Ollama, sur le même poste). L'assistant voit l'état actuel de SysLens : équipements, incidents des 7 derniers jours, nombre de logs. Chaque conversation n'est visible que par la personne qui l'a ouverte. Dans « À traiter maintenant », **Demander à l'assistant** lui pose directement la question sur un incident.
+
 ## Référentiel
 
 `referentiel.json` décrit les logs Zyxel connus (pare-feu ZLD et uOS, switchs, bornes, Nebula) : catégorie, message, note de base, plancher, signification et action. L'ordre fait la priorité : la première entrée qui correspond note le log.
@@ -100,6 +106,8 @@ Tout reste sur la machine :
 - `logs/types.json` : tous les types de logs vus depuis l'installation, avec leur couverture ;
 - `logs/compteurs.json` : le nombre de logs reçus par tranche de 5 minutes et par niveau, sur 7 jours ;
 - `logs/incidents-etat.json` : les incidents acquittés ou clos par un admin (avec un résumé pour l’onglet Archivés), gardés 13 mois ;
+- `logs/comptes.json`, `logs/sessions.json` : les comptes (mots de passe hachés) et les sessions ouvertes ;
+- `logs/conversations/` : les conversations avec l'assistant, un fichier par compte ;
 - `logs/adresses.json` : l'adresse IP des switchs et bornes derrière un pare-feu, apprise de ses logs DHCP, pour les pinger quand ils se taisent ;
 - `logs/ref-appris.json` : les types classés par l'IA ou un technicien, et les notes de base corrigées.
 

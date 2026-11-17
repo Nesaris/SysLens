@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.8.0",
+    "date": "2026-11-17",
+    "points": [
+      "Comptes : au premier lancement, la console demande de créer le compte administrateur. Ensuite, chacun se connecte avec le sien, pour toute la console. L'administrateur crée les comptes dans Réglages, avec un mot de passe provisoire à changer à la première connexion.",
+      "Assistant (bouton en bas à droite) : conversation avec l'IA configurée, qui voit l'état actuel de SysLens (équipements, incidents, logs). Chaque conversation n'est visible que par son auteur, administrateur compris.",
+      "« Demander à l'assistant » sur chaque incident de À traiter maintenant.",
+      "Clôtures d'incidents et validations du référentiel sont enregistrées au nom de la personne connectée.",
+      "Les réglages de l'IA sont gardés dans le navigateur (jamais la clé API)."
+    ]
+  },
+  {
     "version": "0.7.2",
     "date": "2026-11-17",
     "points": [

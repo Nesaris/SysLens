@@ -362,3 +362,46 @@ test('équipement calme : un switch qui se tait est pingé à l’adresse appris
   assert.equal(fw.ping, undefined, 'un pare-feu parle en continu : jamais pingé');
   assert.equal(JSON.parse(fs.readFileSync(path.join(s.dossier, 'logs', 'adresses.json')))['XMG1915'].ip, '192.168.1.34');
 });
+
+test('comptes et assistant : premier compte local, connexion obligatoire, conversations isolées par compte', async () => {
+  const json = { 'content-type': 'application/json' }, s = await demarrer(), prompts = [];
+  const ollama = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const c = JSON.parse(b); prompts.push(c); rr.writeHead(200, json);
+    rr.end(JSON.stringify({ message: { content: 'Réponse ' + prompts.length }, eval_count: 10, eval_duration: 1e9 })); }); });
+  await new Promise(ok => ollama.listen(0, '127.0.0.1', ok)); after(() => ollama.close());
+  const ai = { prov: 'ollama', mode: 'local', url: 'http://127.0.0.1:' + ollama.address().port, model: 'essai:8b' };
+  const req = (chemin, corps, cookie) => requete(s.web, chemin, corps === undefined ? { entetes: cookie ? { cookie } : {} } : { methode: 'POST', entetes: { ...json, ...(cookie ? { cookie } : {}) }, corps: JSON.stringify(corps) });
+  const ck = x => String(x.entetes['set-cookie'] || '').split(';')[0];
+  // Sans compte : la console reste ouverte (installation).
+  assert.equal((await req('/api/events?since=0')).statut, 200); assert.equal((await req('/api/auth/moi')).json.setup, true);
+  assert.equal((await req('/api/auth/setup', { name: 'Admin', login: 'admin', password: 'court' })).statut, 400, 'mot de passe trop court');
+  const a = await req('/api/auth/setup', { name: 'Admin Essai', login: 'admin', password: 'mot-de-passe-admin' }); assert.equal(a.statut, 200, a.texte); const A = ck(a);
+  assert.match(String(a.entetes['set-cookie']), /HttpOnly; SameSite=Strict/);
+  assert.equal((await req('/api/auth/setup', { name: 'Autre', login: 'autre', password: 'mot-de-passe-autre' })).statut, 409, 'un seul premier compte');
+  // Avec un compte : tout demande une session, sauf la console elle-même et la mise à jour en ligne de commande.
+  for (const u of ['/api/events?since=0', '/api/incidents', '/api/referentiel', '/api/incidents-etat', '/api', '/api/chat']) assert.equal((await req(u)).statut, 401, u);
+  assert.equal((await req('/console')).statut, 200); assert.equal((await req('/api/events?since=0', undefined, A)).statut, 200);
+  assert.equal((await requete(s.web, '/api/update', { methode: 'POST', entetes: json, corps: '{}' })).statut, 200, 'mise à jour depuis ce poste en ligne de commande');
+  assert.equal((await requete(s.web, '/api/update', { methode: 'POST', entetes: { ...json, origin: 'http://127.0.0.1:' + s.web }, corps: '{}' })).statut, 401, 'pas depuis un navigateur sans session');
+  // L'administrateur crée un technicien ; le technicien ne gère pas les comptes.
+  assert.equal((await req('/api/comptes', { op: 'create', name: 'Tech Un', login: 'tech1', password: 'provisoire-123' }, A)).statut, 200);
+  assert.equal((await req('/api/auth/login', { login: 'tech1', password: 'mauvais-mot' })).statut, 401);
+  const t = await req('/api/auth/login', { login: 'TECH1', password: 'provisoire-123' }); assert.equal(t.statut, 200); const T = ck(t);
+  assert.equal((await req('/api/auth/moi', undefined, T)).json.user.mustChange, true);
+  assert.equal((await req('/api/comptes', { op: 'list' }, T)).statut, 403);
+  // Conversations : chacun les siennes.
+  const c1 = await req('/api/chat', { op: 'send', text: 'Que dois-je traiter ?', ai }, A); assert.equal(c1.statut, 200, c1.texte);
+  assert.equal(c1.json.msgs.length, 2); assert.equal(c1.json.msgs[1].content, 'Réponse 1'); assert.equal(prompts[0].messages[0].role, 'system'); assert.match(prompts[0].messages[0].content, /Incidents des 7 derniers jours/);
+  assert.equal(prompts[0].format, undefined, 'réponse libre, pas de JSON imposé');
+  const c2 = await req('/api/chat', { op: 'send', id: c1.json.id, text: 'Et ensuite ?', ai }, A); assert.equal(prompts[1].messages.length, 4, 'historique envoyé');
+  assert.equal((await req('/api/chat', undefined, T)).json.convs.length, 0, 'le technicien ne voit pas la conversation de l’admin');
+  assert.equal((await req('/api/chat/' + c1.json.id, undefined, T)).statut, 404);
+  assert.equal((await req('/api/chat', { op: 'send', id: c1.json.id, text: 'intrusion', ai }, T)).statut, 404, 'ni écrire dedans');
+  assert.equal((await req('/api/chat', { op: 'delete', id: c1.json.id }, T)).statut, 404, 'ni la supprimer');
+  assert.equal((await req('/api/chat', undefined, A)).json.convs[0].n, 4);
+  const st = fs.statSync(path.join(s.dossier, 'logs', 'comptes.json')); assert.equal(st.mode & 0o777, 0o600);
+  assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'comptes.json'), 'utf8').includes('mot-de-passe-admin'), 'mot de passe haché');
+  // Déconnexion, puis 5 essais ratés : blocage.
+  await req('/api/auth/logout', {}, A); assert.equal((await req('/api/events?since=0', undefined, A)).statut, 401);
+  for (let i = 0; i < 5; i++) await req('/api/auth/login', { login: 'admin', password: 'faux-' + i });
+  assert.equal((await req('/api/auth/login', { login: 'admin', password: 'mot-de-passe-admin' })).statut, 429);
+});

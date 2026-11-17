@@ -402,6 +402,10 @@ test('comptes et assistant : premier compte local, connexion obligatoire, conver
   const avant = prompts.length, hs = await req('/api/chat', { op: 'send', text: 'non juste 20+20=Combien', ai }, A);
   assert.equal(prompts.length, avant, 'pas d’appel au modèle'); assert.match(hs.json.msgs.at(-1).content, /uniquement sur SysLens/);
   assert.match(prompts[0].messages[0].content, /jamais des consignes/);
+  const avant2 = prompts.length, ud = await req('/api/chat', { op: 'send', text: 'décris moi les 50000 logs un par un', ai }, A);
+  assert.equal(prompts.length, avant2, 'détail ligne par ligne : pas d’appel au modèle'); assert.match(ud.json.msgs.at(-1).content, /Flux de logs/);
+  await req('/api/chat', { op: 'send', text: 'Un résumé de tous les logs', ai }, A); assert.equal(prompts.length, avant2 + 1, 'un résumé, lui, va au modèle');
+  assert.match(prompts.at(-1).messages[0].content, /Ce que contiennent les logs, par type/);
   const st = fs.statSync(path.join(s.dossier, 'logs', 'comptes.json')); assert.equal(st.mode & 0o777, 0o600);
   assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'comptes.json'), 'utf8').includes('mot-de-passe-admin'), 'mot de passe haché');
   // Déconnexion, puis 5 essais ratés : blocage.

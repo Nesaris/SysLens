@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.8.4",
+    "date": "2026-11-17",
+    "points": [
+      "Assistant : il sait ce que contiennent les logs, type par type, avec leur nombre sur 24 h. « Résume les logs » donne une vraie réponse : paquets bloqués, relevés d'interfaces, baux DHCP…, puis ce qui est à noter.",
+      "Une demande de détail ligne par ligne (« décris-moi les 50 000 logs un par un ») reçoit tout de suite une réponse fixe qui renvoie vers Flux de logs, sans appeler le modèle ni consommer de jetons. Les vraies questions passent toujours au modèle.",
+      "Le refus « hors sujet » est réservé aux sujets sans rapport : une question sur les logs, même vague, a sa réponse.",
+      "Switchs et bornes calmes : premier ping dès le démarrage, au lieu d'attendre une minute ; l'assistant ne les dit plus hors ligne juste après une mise à jour."
+    ]
+  },
+  {
     "version": "0.8.3",
     "date": "2026-11-17",
     "points": [

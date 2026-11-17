@@ -516,23 +516,29 @@ V.overview = () => {
   const cover = ev.length ? ev.filter(e => CAT[e.k] && CAT[e.k].st === 'actif').length / ev.length : 0;
   const aiN = all.filter(i => i.lv === 'moyen' || i.lv === 'grave').reduce((a, i) => a + i.list.filter(e => e.t >= t0).length, 0), aiShare = ev.length ? aiN / ev.length : 0;
   const risk = open.length ? open[0].sc.s : 0, rLv = level(risk), n = l => open.filter(i => i.lv === l).length, crit = n('critique');
-  const lvOf = ev.map(e => level(scoreOf(e, 1).s)), nonBen = lvOf.filter(l => l !== 'benin').length;
-  const cb = buckets(ev, 48), cmax = Math.max(1, ...cb.map(b => b.length));
-  const cols = cb.map(b => `<div class="l-${b.length ? maxLv(b) : 'benin'}" style="height:${(b.length / cmax * 100).toFixed(1)}%" title="${b.length} logs"></div>`).join('');
+  const lvOf = ev.map(e => level(scoreOf(e, 1).s)); let nonBen = lvOf.filter(l => l !== 'benin').length, nLogs = ev.length;
+  const cb = buckets(ev, 48); let colv = cb.map(b => [b.length, b.length ? maxLv(b) : 'benin']);
+  const srvc = LIVEMODE && SRVCNT && (!fCli || fCli === 'cli-test') ? SRVCNT.filter(c => c.t + 300e3 > t0) : null;
+  if (srvc) { nLogs = srvc.reduce((a, c) => a + c.n, 0); nonBen = srvc.reduce((a, c) => a + c.m + c.g + c.c, 0); const w = per * H / 48;
+    colv = Array.from({length: 48}, () => [0, 'benin', 0, 0, 0]); for (const c of srvc) { const i = Math.min(47, Math.floor((c.t - t0) / w)); if (i < 0) continue; const b = colv[i]; b[0] += c.n; b[2] += c.m; b[3] += c.g; b[4] += c.c; }
+    colv = colv.map(b => [b[0], b[4] ? 'critique' : b[3] ? 'grave' : b[2] ? 'moyen' : 'benin']); }
+  const cmax = Math.max(1, ...colv.map(b => b[0]));
+  const cols = colv.map(([n, lv]) => `<div class="l-${lv}" style="height:${(n / cmax * 100).toFixed(1)}%" title="${n} logs"></div>`).join('');
   const lb = buckets(ev, 24), pts = lb.map((b, i) => [i / 23 * 300, 140 - (b.length ? Math.max(...b.map(e => scoreOf(e, 1).s)) : 0) * 1.3]);
   const line = smooth(pts), lastV = Math.round((140 - pts[23][1]) / 1.3);
   const thY = v => ((140 - v * 1.3) / 150 * 100).toFixed(1);
   const rows = (fCli ? clients.filter(c => c.id === fCli) : MON()).map(c => { const b = buckets(ev.filter(e => e.cli === c.id), 24);
     return `<span title="${esc(c.name)}">${esc(c.id === 'cli-test' ? c.name : c.name.split(' ').slice(-1)[0])}</span>` + b.map(x => `<i class="${x.length ? 'l-' + maxLv(x) : ''}" title="${x.length} logs"></i>`).join(''); }).join('');
-  const fam = [['Pare-feu','var(--fw)'],['Switch','var(--sw)'],['Borne','var(--ap)']].map(([f,c]) => [f, c, ev.filter(e => e.fam === f).length]);
-  let off = 0; const donut = fam.map(([f,c,v]) => { const p = ev.length ? v / ev.length * 100 : 0, s = `<circle cx="44" cy="44" r="34" fill="none" stroke="${c}" stroke-width="9" pathLength="100" stroke-dasharray="${Math.max(0, p - 1.2).toFixed(2)} 100" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 44 44)"/>`; off += p; return s; }).join('');
+  const fam = [['Pare-feu','var(--fw)','fw'],['Switch','var(--sw)','sw'],['Borne','var(--ap)','ap']].map(([f,c,k]) => [f, c, srvc ? srvc.reduce((a, x) => a + (x[k] || 0), 0) : ev.filter(e => e.fam === f).length]);
+  const famT = fam.reduce((a, x) => a + x[2], 0);
+  let off = 0; const donut = fam.map(([f,c,v]) => { const p = famT ? v / famT * 100 : 0, s = `<circle cx="44" cy="44" r="34" fill="none" stroke="${c}" stroke-width="9" pathLength="100" stroke-dasharray="${Math.max(0, p - 1.2).toFixed(2)} 100" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 44 44)"/>`; off += p; return s; }).join('');
   const feed = open.slice().sort((a,b) => b.last.t - a.last.t).slice(0, 6).map(i => `<li data-inc="${esc(i.key)}" class="c-${i.lv}"><i><svg width="14" height="14"><use href="#i-${i.last.k === 'silence' ? 'clock' : 'incidents'}"/></svg></i><div><b>${i.lv === 'critique' ? 'Alerte critique envoyée' : i.last.k === 'silence' ? 'Équipement silencieux' : 'Incident ' + LNAME[i.lv].toLowerCase() + ' ouvert'}</b><span>${esc(i.last.k === 'silence' ? i.last.dev : CAT[i.last.k].sig)} · ${esc(cName(i.last.cli))} · ${ago(i.last.t)}</span></div></li>`).join('');
   const ring = Math.min(1, aiShare / 0.05);
   return `<div class="head"><div><h1>${crit ? crit + ' incident' + (crit > 1 ? 's' : '') + ' critique' + (crit > 1 ? 's' : '') + ' à traiter' : 'Aucun incident critique ouvert'}</h1><p class="sub">${open.length} incidents ouverts · ${devs.length - talk} équipement${devs.length - talk > 1 ? 's' : ''} silencieux · fenêtre de ${per} h${LIVEMODE ? ' · données réelles du récepteur' : ''}</p></div>
   <div class="seg" role="group" aria-label="Fenêtre de temps">${[6,12,24].map(h => `<button data-per="${h}" class="${per === h ? 'on' : ''}" aria-pressed="${per === h}">${h} h</button>`).join('')}</div></div>
   <div class="ov"><div class="ovmain">
   <section class="card c-logs"><h3>Logs reçus <span class="ico"><svg width="14" height="14"><use href="#i-logs"/></svg></span></h3>
-    <div class="big">${fmtN(ev.length)}</div><p class="note"><b style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</b> notés moyen ou plus · ${(ev.length / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
+    <div class="big">${fmtN(nLogs)}</div><p class="note"><b style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</b> notés moyen ou plus · ${(nLogs / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
     <div class="cols" role="img" aria-label="Volume de logs sur ${per} heures, colorié par le niveau le plus haut">${cols}</div><div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div>
     <div class="gw">${gauge(risk / 100, LVC[rLv], 'Score le plus haut encore ouvert : ' + risk)}<div class="gv"><span class="big">${risk}<small>/100</small></span></div></div>
     <p class="note" style="text-align:center">Score le plus haut encore ouvert · ${LNAME[rLv]}</p></section>
@@ -555,8 +561,8 @@ V.overview = () => {
     <section class="card"><h3>Couche IA <span class="tag ok">${aiCloud() ? 'cloud' : 'local'}</span></h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Budget IA consommé"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${ring > 0 ? `<circle cx="44" cy="44" r="34" fill="none" stroke="${aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)'}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${(ring * 100).toFixed(1)} 100" transform="rotate(-90 44 44)"/>` : ''}<text x="44" y="49" text-anchor="middle" font-size="15" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${Math.round(ring * 100)} %</text></svg>
       <dl class="kv" style="font-size:13px"><dt>Moteur</dt><dd>${esc(ai.provName())}</dd><dt>Modèle</dt><dd class="mono">${esc(ai.model)}</dd><dt>Appels</dt><dd>${aiLog.length} cette session</dd></dl></div>
       <p class="note">Budget IA consommé (part vue / 5 %). Les critiques partent sans attendre le modèle.</p></section>
-    <section class="card"><h3>Logs par famille</h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Répartition des logs par famille"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${donut}<text x="44" y="48" text-anchor="middle" font-size="13" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${fmtN(ev.length)}</text></svg>
-      <div class="bars">${fam.map(([f,c,v]) => `<div><p><span>${f}</span><b>${ev.length ? Math.round(v / ev.length * 100) : 0} %</b></p><div class="track"><span style="width:${ev.length ? v / ev.length * 100 : 0}%;background:${c}"></span></div></div>`).join('')}</div></div></section>
+    <section class="card"><h3>Logs par famille</h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Répartition des logs par famille"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${donut}<text x="44" y="48" text-anchor="middle" font-size="13" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${fmtN(famT)}</text></svg>
+      <div class="bars">${fam.map(([f,c,v]) => `<div><p><span>${f}</span><b>${famT ? Math.round(v / famT * 100) : 0} %</b></p><div class="track"><span style="width:${famT ? v / famT * 100 : 0}%;background:${c}"></span></div></div>`).join('')}</div></div></section>
     <section class="card"><h3>Derniers événements <a href="#incidents">Tout</a></h3><ul class="feed">${feed || '<li class="empty">Rien à signaler.</li>'}</ul></section>
   </aside></div>`;
 };
@@ -1198,10 +1204,12 @@ function liveDev(x) { const id = x.host || x.from; let d = devices.find(v => v.i
   d.lastT = Math.max(d.lastT || 0, x.t); return d; }
 function liveEv(x) { const d = liveDev(x), k = liveK(x), c = CAT[k], f = x.f || {};
   events.push({id: ++evId, t: x.t, dev: d.id, cli: d.cli, fam: d.fam, model: d.model, k, cat: x.cat || c.cat, msg: x.msg || '', vsev: x.sev ?? 6, src: f.src || '', dst: f.dst || '', user: f.user || '', admin: !!c.admin, maint: false, raw: x.raw || '', srv: x.score, parts: x.parts, cov: x.cov}); }
+let SRVCNT = null;   // compteurs du récepteur par tranche de 5 min : tous les logs reçus, même ceux que la console n'a pas en mémoire
 async function livePoll() { if (paused) return;
   try { const j = await (await fetch('/api/events?since=' + liveSince, {cache:'no-store'})).json();
     versionSeen(j.version);
     for (const x of j.events) { liveEv(x); liveSince = Math.max(liveSince, x.id); }
+    if (j.counts) SRVCNT = j.counts;
     if (j.events.length) { events.sort((a,b) => a.t - b.t); if (events.length > 20000) events.splice(0, events.length - 20000); srcCache.clear(); }
     const now = Date.now(); devices.forEach(d => d.last = Math.max(0, Math.round((now - d.lastT) / 60e3)));
     const first = liveOk !== true; liveOk = true; liveN++;

@@ -217,6 +217,8 @@ test('archives : jours passés compressés, au-delà de la rétention supprimés
   const dossier = installer(), logs = path.join(dossier, 'logs'); fs.mkdirSync(logs);
   const j = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10), vieux = Date.now() / 1000 - 86400;
   fs.writeFileSync(path.join(logs, `raw-${j(3)}.log`), 'ligne\n'.repeat(100)); fs.writeFileSync(path.join(logs, `raw-${j(120)}.log`), 'x\n');
+  // Un jour qui a déjà son archive .gz (version précédente) : la compression ajoute, n'écrase pas.
+  const zl = require('zlib'); fs.writeFileSync(path.join(logs, `raw-${j(2)}.log.gz`), zl.gzipSync('avant\n')); fs.writeFileSync(path.join(logs, `raw-${j(2)}.log`), 'apres\n');
   for (const f of fs.readdirSync(logs)) fs.utimesSync(path.join(logs, f), vieux, vieux);
   await demarrer({ RETENTION_DAYS: '90' }, dossier);
   for (let i = 0; i < 60 && !fs.existsSync(path.join(logs, `raw-${j(3)}.log.gz`)); i++) await attendre(200);
@@ -224,6 +226,8 @@ test('archives : jours passés compressés, au-delà de la rétention supprimés
   assert.equal(zlib.gunzipSync(fs.readFileSync(path.join(logs, `raw-${j(3)}.log.gz`))).toString(), 'ligne\n'.repeat(100));
   assert.ok(!fs.existsSync(path.join(logs, `raw-${j(3)}.log`)));
   assert.ok(!fs.existsSync(path.join(logs, `raw-${j(120)}.log`)), 'au-delà de 90 jours : supprimé');
+  for (let i = 0; i < 30 && fs.existsSync(path.join(logs, `raw-${j(2)}.log`)); i++) await attendre(200);
+  assert.equal(zlib.gunzipSync(fs.readFileSync(path.join(logs, `raw-${j(2)}.log.gz`))).toString(), 'avant\napres\n', 'archive existante gardée');
 });
 
 test('switch Zyxel en syslog à horodatage ISO : nom, modèle, source et utilisateur reconnus', async () => {
@@ -280,4 +284,19 @@ test('référentiel : types cumulés après redémarrage, classement par l’IA,
   const e = ev.pop(); assert.equal(e.score, 20); assert.equal(e.cov, 'appris'); assert.match(e.k, /^appris:/);
   assert.ok(fs.existsSync(path.join(dossier, 'logs', 'ref-appris.json')));
   const refus = await requete(s.web, '/api/ref', { methode: 'POST', entetes: { ...json, origin: 'https://exemple.com' }, corps: JSON.stringify({ op: 'oublier', key: t.key }) }); assert.equal(refus.statut, 403);
+});
+
+test('compteurs : tous les logs comptés par tranche de 5 min, gardés au redémarrage, et les 24 h d’événements rechargées', async () => {
+  const dossier = installer(); let s = await demarrer({ BENIN: '0' }, dossier);
+  const benins = Array.from({ length: 40 }, (_, i) => cef('INTERFACE STATISTICS', 5, `msg=name:Port${i % 5},status:Down,TxPkts:0 cat=INTERFACE STATISTICS ZYlevel=notice`));
+  await envoyer(s.syslog, [...benins, cef('System', 1, 'msg=Port 3 is down! cat=System ZYlevel=alert')]);
+  let j; for (let i = 0; i < 30; i++) { await attendre(100); j = (await requete(s.web, '/api/events?since=0')).json; if (j.counts && j.counts.reduce((a, c) => a + c.n, 0) === 41) break; }
+  const somme = k => j.counts.reduce((a, c) => a + c[k], 0); assert.equal(somme('n'), 41); assert.equal(somme('g'), 1); assert.equal(somme('fw'), 41);
+  s.proc.kill('SIGTERM'); await attendre(400); assert.ok(fs.existsSync(path.join(dossier, 'logs', 'compteurs.json')));
+  // Les événements d'hier (dans les 24 h) sont rechargés depuis l'archive compressée.
+  const hier = new Date(Date.now() - 864e5).toISOString().slice(0, 10), zlib = require('zlib');
+  fs.writeFileSync(path.join(dossier, 'logs', `events-${hier}.jsonl.gz`), zlib.gzipSync(JSON.stringify({ t: Date.now() - 3600e3, from: '127.0.0.1', raw: cef('System', 1, 'msg=Port 4 is down! cat=System ZYlevel=alert') }) + '\n'));
+  s = await demarrer({}, dossier); j = (await requete(s.web, '/api/events?since=0')).json;
+  assert.equal(j.counts.reduce((a, c) => a + c.n, 0), 41, 'compteurs relus');
+  assert.ok(j.events.some(e => /Port 4 is down/.test(e.msg)), 'événement d’il y a une heure (fichier d’hier) rechargé');
 });

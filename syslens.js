@@ -28,6 +28,7 @@ function tpl(s, ev) { let t = String(s || '');
     .replace(/\b\d{1,3}(\.\d{1,3}){3}(\/\d+|:\d+)?\b/g, '<ip>').replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|fr|io|eu|de|be|ch|uk|info|biz|local|lan|ru|cn|xyz|top)\b/gi, '<nom>')
     .replace(/\b0x[0-9a-f]+\b/gi, '#').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 100); }
 const catT = c => String(c || '?').replace(/\d+/g, '#').slice(0, 60);
+const famOfProduct = p => /^(GS|XGS|XMG|XS|MS|MG)\d/i.test(p || '') ? 'switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p || '') ? 'borne Wi-Fi' : p ? 'pare-feu' : 'inconnu';
 const shortHash = s => crypto.createHash('sha1').update(s).digest('hex').slice(0, 8);
 const isPublic = ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !/^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|0\.)/.test(ip);
 
@@ -106,7 +107,7 @@ setInterval(() => { const lim = Date.now() - 300e3; for (const [k, a] of win) if
 // Un processus suffit jusqu'à plusieurs dizaines de milliers de logs/s ; WORKERS=n en ajoute pour les très gros parcs.
 const WORKERS = Math.max(0, Math.min(32, +process.env.WORKERS || 0)), RAW_GZ = process.env.RAW_GZIP !== '0';
 const RETENTION = Math.max(1, +process.env.RETENTION_DAYS || 90), SAMPLE = Math.max(0, +(process.env.SAMPLE ?? 20)), HIST_MAX = 50000;
-const day = () => new Date().toISOString().slice(0, 10);
+const day = (d = new Date()) => d.toISOString().slice(0, 10);
 const devKey = ev => ev.from + '|' + (ev.host || ev.f.devID || '');
 // Écriture en flux, un fichier par jour ; le brut est compressé au fil de l'eau (gzip, environ 40 fois plus petit sur des logs Zyxel).
 function dayWriter(name, gz) { let d = '', st = null, z = null;
@@ -126,10 +127,13 @@ function stage1(line, from) {
   let ty = typeDelta.get(ev.tk);
   if (!ty) typeDelta.set(ev.tk, ty = { key: ev.tk, cat: ev.cat, msg: tpl(ev.msg || ev.name, ev), sev: SEV[ev.sev], k: ev.k, cov: ev.cov, fam: ev.product, count: 0, first: ev.t, example: line });
   ty.count++; ty.last = ev.t; if (ev.sev < SEV.indexOf(ty.sev)) ty.sev = SEV[ev.sev];
+  const bk = Math.floor(ev.t / 300e3) * 300e3; let c = cntDelta.get(bk); if (!c) cntDelta.set(bk, c = { t: bk, n: 0, m: 0, g: 0, c: 0, fw: 0, sw: 0, ap: 0 });
+  c.n++; if (ev.level !== 'benin') c[ev.level[0]]++; const fm = famOfProduct(ev.product); c[fm === 'switch' ? 'sw' : fm === 'borne Wi-Fi' ? 'ap' : 'fw']++;
   if (ev.ref || ev.rec || ev.level !== 'benin') emit(ev, false); else if (budget > 0) { budget--; emit(ev, true); }
 }
+const cntDelta = new Map();
 function emit(ev, sample) { if (cluster.isWorker) outBuf.push([ev, sample]); else stage2(ev, sample); }
-function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); return p; }
+function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()], counts: [...cntDelta.values()] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); cntDelta.clear(); return p; }
 function startReceivers(h) {
   const udp = dgram.createSocket('udp4');
   udp.on('message', (b, ri) => allowed(ri.address) ? h(b.toString('utf8'), ri.address) : drop(ri.address));
@@ -178,6 +182,7 @@ function recover(ev) { const r = REF.find(x => x.k === ev.k), tk = portTok(ev.ms
     I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; } }
 function mergeStats(p) {
   total += p.n; rate += p.n;
+  for (const x of p.counts || []) { const c = counts.get(x.t); if (!c) counts.set(x.t, { ...x }); else for (const k of CNT_K) c[k] += x[k]; countsDirty = true; }
   for (const x of p.devs) { let d = devices.get(x.key);
     if (!d) { d = { ...x, count: 0 }; devices.set(x.key, d); console.log(`\n\x1b[32m✓ Premier log reçu de ${x.from}${x.host ? ' (' + x.host + ')' : ''}${x.product ? ' : ' + x.product + ' ' + x.ver : ''} (format ${x.fmt})\x1b[0m\n`); }
     d.count += x.count; d.last = Math.max(d.last || 0, x.last); if (x.product) { d.product = x.product; d.ver = x.ver; } }
@@ -193,13 +198,21 @@ try { for (const t of JSON.parse(fs.readFileSync(TYPES_FILE, 'utf8'))) if (t && 
 const saveTypes = () => { if (!typesDirty) return; typesDirty = false; const tmp = TYPES_FILE + '.part';
   fs.writeFile(tmp, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1), err => { if (!err) fs.rename(tmp, TYPES_FILE, () => {}); }); };
 setInterval(saveTypes, 15e3).unref();
+// Compteurs par tranche de 5 min (tous les logs reçus, bénins compris) : gardés 7 jours, relus au démarrage.
+const COUNTS_FILE = path.join(DIR, 'compteurs.json'), CNT_K = ['n', 'm', 'g', 'c', 'fw', 'sw', 'ap'], counts = new Map(); let countsDirty = false;
+try { for (const c of JSON.parse(fs.readFileSync(COUNTS_FILE, 'utf8'))) if (c && Number.isFinite(c.t)) counts.set(c.t, c); } catch (e) {}
+const saveCounts = sync => { if (!countsDirty) return; countsDirty = false; const lim = Date.now() - 7 * 864e5; for (const t of counts.keys()) if (t < lim) counts.delete(t);
+  const tmp = COUNTS_FILE + '.part', data = JSON.stringify([...counts.values()].sort((a, b) => a.t - b.t));
+  if (sync) { try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, COUNTS_FILE); } catch (e) {} } else fs.writeFile(tmp, data, err => { if (!err) fs.rename(tmp, COUNTS_FILE, () => {}); }); };
+setInterval(saveCounts, 60e3).unref();
 // Archives : les jours passés sont compressés, au-delà de RETENTION_DAYS (90 par défaut) ils sont supprimés.
 function maintain() { const today = day(), lim = new Date(Date.now() - RETENTION * 864e5).toISOString().slice(0, 10);
   let names = []; try { names = fs.readdirSync(DIR); } catch (e) { return; }
   for (const f of names) { const m = /^(?:raw|events)-(\d{4}-\d{2}-\d{2})(?:\.w\d+)?\.(?:log|jsonl)(\.gz)?$/.exec(f); if (!m) continue; const p = path.join(DIR, f);
     if (m[1] < lim) { fs.rmSync(p, { force: true }); continue; }
     if (m[1] < today && !m[2]) { try { if (Date.now() - fs.statSync(p).mtimeMs < 600e3) continue; } catch (e) { continue; }
-      const tmp = p + '.gz.part'; require('stream').pipeline(fs.createReadStream(p), zlib.createGzip(), fs.createWriteStream(tmp), err => { if (err) return fs.rmSync(tmp, { force: true }); fs.renameSync(tmp, p + '.gz'); fs.rmSync(p, { force: true }); }); } } }
+      const tmp = p + '.gz.part'; require('stream').pipeline(fs.createReadStream(p), zlib.createGzip(), fs.createWriteStream(tmp), err => { if (err) return fs.rmSync(tmp, { force: true });
+        try { if (fs.existsSync(p + '.gz')) { fs.appendFileSync(p + '.gz', fs.readFileSync(tmp)); fs.rmSync(tmp, { force: true }); } else fs.renameSync(tmp, p + '.gz'); fs.rmSync(p, { force: true }); } catch (e) { console.error('Archive ' + f + ' : ' + e.message); } }); } } }
 function startWorkers() {
   cluster.setupPrimary({ silent: false });
   const onMsg = m => { if (m && m.t === 'ev') for (const [ev, sm] of m.evs) stage2(ev, sm); else if (m && m.t === 'stats') mergeStats(m); };
@@ -214,15 +227,19 @@ async function go(){const d=await (await fetch('/api')).json();document.getEleme
 '<h2>Derniers logs</h2><table><tr><th>Heure</th><th>Niveau</th><th>Score</th><th>Catégorie</th><th>Message</th><th>Calcul</th></tr>'+d.events.map(x=>'<tr><td>'+new Date(x.t).toLocaleTimeString('fr-FR')+'</td><td class="'+x.level+'">'+x.level+'</td><td>'+x.score+'</td><td>'+e(x.cat)+'</td><td>'+e(x.msg)+'</td><td><code>'+e(x.why)+'</code></td></tr>').join('')+'</table>'+
 '<h2>Types de logs vus ('+d.types.length+')</h2><table><tr><th>Nb</th><th>Catégorie</th><th>Nom</th><th>Gravité Zyxel</th><th>Règle</th></tr>'+d.types.map(x=>'<tr><td>'+x.count+'</td><td>'+e(x.cat)+'</td><td>'+e(x.name)+'</td><td>'+x.sev+'</td><td>'+x.k+'</td></tr>').join('')+'</table>';}
 go();setInterval(go,2000);</script></html>`;
-try { const fe = path.join(DIR, 'events-' + day() + '.jsonl');
-  // Le fichier du jour ne garde que les événements utiles (avec leur ligne brute) : rechargement rapide même à fort débit.
-  for (const l of fs.readFileSync(fe, 'utf8').split('\n')) { if (!l) continue; let e; try { e = JSON.parse(l); } catch (x) { continue; }
-    if (!allowed(e.from)) continue;
+{ // Les fichiers d'événements ne gardent que les événements utiles (avec leur ligne brute) : rechargement rapide même à fort débit.
+  const since = Date.now() - 24 * 3600e3, rebuild = !counts.size, readDay = d => { const f = path.join(DIR, 'events-' + d + '.jsonl');
+    try { return fs.readFileSync(f, 'utf8'); } catch (e) { try { return zlib.gunzipSync(fs.readFileSync(f + '.gz')).toString('utf8'); } catch (x) { return ''; } } };
+  const lines = [day(new Date(since)), day()].filter((d, i, a) => a.indexOf(d) === i).flatMap(d => readDay(d).split('\n'));
+  for (const l of lines) { if (!l) continue; let e; try { e = JSON.parse(l); } catch (x) { continue; }
+    if (!e.t || e.t < since || !allowed(e.from)) continue;
     if (e.raw) { const t = e.t; e = parse(e.raw, e.from); e.t = t; } else { e.raw = ''; e.f = e.f || {}; e.msg = e.msg || ''; e.name = e.name || ''; e.cat = e.cat || ''; }
     e.dev = devKey(e); score(e, false); stage2(e, false, true);
+    if (rebuild) { const bk = Math.floor(e.t / 300e3) * 300e3; let c = counts.get(bk); if (!c) counts.set(bk, c = { t: bk, n: 0, m: 0, g: 0, c: 0, fw: 0, sw: 0, ap: 0 });   // première fois : compteurs tirés des événements gardés
+      c.n++; if (e.level !== 'benin') c[e.level[0]]++; const fm = famOfProduct(e.product); c[fm === 'switch' ? 'sw' : fm === 'borne Wi-Fi' ? 'ap' : 'fw']++; countsDirty = true; }
     let d = devices.get(e.dev); if (!d) devices.set(e.dev, d = { key: e.dev, from: e.from, host: e.host, product: e.product, ver: e.ver, fmt: e.fmt, first: e.t, count: 0 }); d.last = e.t; d.count++; }
-  if (hist.length) console.log('Historique du jour rechargé : ' + hist.length + ' événements utiles');
-} catch (e) {}
+  if (hist.length) console.log('Dernières 24 h rechargées : ' + hist.length + ' événements utiles');
+}
 // --- logos d'extension : récupérés une fois sur le site officiel de la marque, puis gardés dans extensions/<id>/
 const EXT_SITES = Object.assign({ zyxel: 'https://www.zyxel.com', odoo: 'https://www.odoo.com', telegram: 'https://telegram.org', unifi: 'https://ui.com', fortinet: 'https://www.fortinet.com', cisco: 'img:https://upload.wikimedia.org/wikipedia/commons/0/08/Cisco_logo_blue_2016.svg',
   ollama: 'https://ollama.com', mistral: 'https://mistral.ai', chatgpt: 'https://chatgpt.com', claude: 'https://www.claude.com', hermes: 'https://nousresearch.com', grok: 'https://grok.com', 
@@ -401,7 +418,6 @@ ${JSON.stringify(items, null, 1)}`;
       conf: Math.max(0, Math.min(1, +x.confiance || 0)), src, at: Date.now(), cat: t.cat, msg: t.msg, sev: t.sev }; n++; }
   if (n) saveLearned(); console.log(`\x1b[36mIA : ${n} type(s) de log classé(s), à valider dans la console (Référentiel)\x1b[0m`);
   return { proposed: n, left: queue().length }; }
-const famOfProduct = p => /^(GS|XGS|XMG|XS|MS|MG)\d/i.test(p || '') ? 'switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p || '') ? 'borne Wi-Fi' : p ? 'pare-feu' : 'inconnu';
 async function refApi(q) {
   const num = v => v === null || v === '' || v === undefined ? null : Math.round(Math.max(0, Math.min(100, +v)));
   if (q.op === 'classify') { if (classifying) throw new Error('Un classement est déjà en cours.'); classifying = classify(q.ai || {}, q.max).finally(() => { classifying = null; }); return classifying; }
@@ -425,7 +441,7 @@ const webSrv = http.createServer((q, r) => {
     if (!sameOrigin(q)) return json({ error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 256) q.destroy(); });
     q.on('end', async () => { let install = false; try { install = !!JSON.parse(body).install; } catch (e) {} json(await checkUpdate(install)); }); }
   else if (q.url.startsWith('/api/events')) { const since = +(new URL(q.url, 'http://x').searchParams.get('since') || 0); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); const evs = []; for (let i = hist.length - 1; i >= 0 && hist[i].id > since && evs.length < 5000; i--) evs.push(hist[i]); evs.reverse();
-    r.end(JSON.stringify({ version: VERSION, stats: { rate: lastRate, total, workers: WORKERS, devices: devices.size, incidents: incidents.size }, devices: [...devices.values()], events: evs })); }
+    r.end(JSON.stringify({ version: VERSION, stats: { rate: lastRate, total, workers: WORKERS, devices: devices.size, incidents: incidents.size }, counts: [...counts.values()].filter(c => c.t >= Date.now() - 26 * 3600e3), devices: [...devices.values()], events: evs })); }
   else if (q.url.startsWith('/api/incidents')) { const lv = new URL(q.url, 'http://x').searchParams.get('level'); const out = []; for (const I of incidents.values()) if (!lv || I.level === lv) out.push(I);
     out.sort((a, b) => b.last - a.last); r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ total: out.length, incidents: out.slice(0, 2000) })); }
   else if (q.url.startsWith('/console')) { fs.readFile(path.join(__dirname, 'console.html'), (err, b) => { r.writeHead(err ? 404 : 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); r.end(err ? 'console.html introuvable' : b); }); }
@@ -481,12 +497,12 @@ async function checkUpdate(install) {
   } catch (e) { upd.state = 'error'; upd.msg = e.message; upd.checkedAt = Date.now(); console.log(`\x1b[33mMise à jour : ${e.message}\x1b[0m`); }
   return upd; }
 function restart() { let gone = false; stopping = true; const go = () => { if (gone) return; gone = true; cp.spawn(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, SYSLENS_WAIT_PID: String(process.pid) } }); process.exit(0); };
-  setTimeout(go, 4000); evOut.end(); rawOut.end(); typesDirty = true; try { fs.writeFileSync(TYPES_FILE, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1)); } catch (e) {}
+  setTimeout(go, 4000); evOut.end(); rawOut.end(); countsDirty = true; saveCounts(true); typesDirty = true; try { fs.writeFileSync(TYPES_FILE, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1)); } catch (e) {}
   if (rx) { try { rx.udp.close(); } catch (e) {} rx.tcp.close(); } for (const w of Object.values(cluster.workers || {})) w.kill();
   webSrv.close(() => setTimeout(go, 300)); if (webSrv.closeAllConnections) webSrv.closeAllConnections(); }
 
 if (SELFTEST) { console.log('selftest ok ' + VERSION + ' · référentiel ' + REF.length + ' entrées'); process.exit(0); }
-for (const sg of ['SIGINT', 'SIGTERM']) process.on(sg, () => { try { if (typesDirty) fs.writeFileSync(TYPES_FILE, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1)); } catch (e) {} process.exit(0); });
+for (const sg of ['SIGINT', 'SIGTERM']) process.on(sg, () => { countsDirty = true; saveCounts(true); try { if (typesDirty) fs.writeFileSync(TYPES_FILE, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1)); } catch (e) {} process.exit(0); });
 if (WORKERS) startWorkers(); else rx = startReceivers(stage1);
 setTimeout(maintain, 5000).unref(); setInterval(maintain, 3600e3).unref();
 setInterval(() => { if (lastRate || incidents.size) console.log(`\x1b[2mDébit ${lastRate} logs/s · ${devices.size} équipements · ${incidents.size} incidents · ${WORKERS || 1} processus de réception\x1b[0m`); }, 300e3).unref();

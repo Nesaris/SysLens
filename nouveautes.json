@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.5.1",
+    "date": "2026-11-17",
+    "points": [
+      "« Logs reçus » compte de nouveau tous les logs de la fenêtre (6, 12 ou 24 h), y compris ceux d'avant un redémarrage : le récepteur tient des compteurs par tranche de 5 minutes (logs/compteurs.json, 7 jours).",
+      "Au démarrage, les événements utiles des dernières 24 h sont rechargés, fichier de la veille compris (compressé ou non), et plus seulement ceux du jour.",
+      "Correction : la compression nocturne pouvait écraser l'archive brute d'un jour qui en avait déjà une ; elle ajoute désormais à la suite."
+    ]
+  },
+  {
     "version": "0.5.0",
     "date": "2026-11-16",
     "points": [

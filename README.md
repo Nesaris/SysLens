@@ -30,7 +30,8 @@ When you look after the network of dozens or hundreds of clients, the logs are t
 
 ## Features
 
-- **Deterministic scoring.** A reference catalogue built from the vendor documentation, plus fixed modifiers (head-end firewall, public source, repetition, out-of-hours, correlation across clients). Same input, same score, and every incident shows how its score was computed.
+- **Deterministic scoring.** A 120-entry Zyxel reference catalogue (`referentiel.json`: ZLD and uOS firewalls, switches, access points, Nebula), plus fixed modifiers (head-end firewall, public source, repetition, out-of-hours, correlation across clients). Same input, same score, and every incident shows how its score was computed.
+- **Nothing left unclassified.** Every log type received is tracked. Types the catalogue does not describe are classified by your AI from masked templates (no IP, MAC, account or host name), then validated by a technician; until then a proposal can raise a score, never lower it.
 - **Zyxel first.** ZLD and uOS firewalls (USG FLEX, ATP), switches, access points and Nebula. CEF and plain syslog, UDP and TCP.
 - **AI of your choice, never in charge.** Ollama, Mistral, ChatGPT, Claude, Gemini, Hermes or Grok — by API key, or with a ChatGPT, Claude or Google subscription through Codex, Claude Code or Gemini CLI. The AI gives an opinion on medium and serious incidents; critical ones are sent without waiting for it, and cloud AI stays off for a client until they have agreed in writing (GDPR).
 - **Built for large fleets.** One process takes 30,000 logs/s (measured), enough for 10,000+ firewalls; `WORKERS` adds receivers beyond that. Raw logs are gzipped on the fly, past days compressed, kept 90 days. Clients come from your CRM (Odoo extension, with import rules), the client picker scales to thousands, and silent devices raise an incident.

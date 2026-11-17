@@ -12,24 +12,23 @@ const SEV = ['emerg', 'alert', 'crit', 'error', 'warning', 'notice', 'info', 'de
 const level = s => s >= 85 ? 'critique' : s >= 60 ? 'grave' : s >= 30 ? 'moyen' : 'benin';
 const COL = { critique: '\x1b[41;97m', grave: '\x1b[33m', moyen: '\x1b[93m', benin: '\x1b[2m' }, RST = '\x1b[0m';
 
-// Mini-référentiel de départ : à remplacer par les vraies entrées (logs/types.json sert à ça).
-const REF = [
-  { k: 'if-stats', cat: /interface statistics/i, base: 10, telemetry: true },
-  { k: 'dhcp', cat: /^dhcp/i, base: 5, telemetry: true },   // baux DHCP : routine
-  // Retour à la normale : bénin, et ferme l'incident « down » du même équipement.
-  { k: 'link-up', re: /(link|port|interface|cable)[^,]*?\b(is up|up!|link up|reconnected|recovered|restored|alive)|status:up\b/i, base: 5, telemetry: true, recovers: ['link-down'] },
-  { k: 'vpn-up', cat: /ike|ipsec|vpn/i, re: /\b(established|is up|connected|reconnected)\b/i, base: 5, telemetry: true, recovers: ['vpn-down'] },
-  { k: 'admin-ok', re: /(logged in|login succe|has logged)/i, base: 45, admin: true, pubFloor: 85 },
-  { k: 'admin-ko', re: /(fail|incorrect|wrong|invalid).*(login|password|authenticat)|(login|authenticat).*(fail|denied|reject)/i, base: 20, admin: true },
-  { k: 'malware', cat: /anti-?malware|sandbox|anti-?virus/i, base: 80, floor: 85 },
-  { k: 'iprep', cat: /ip reputation|dns threat|botnet/i, base: 75, floor: 85 },
-  { k: 'idp', cat: /^(idp|adp)|intrusion/i, base: 60 },
-  { k: 'vpn-down', cat: /ike|ipsec|vpn/i, re: /(down|disconnect|fail|dead peer|timeout|tear)/i, base: 55 },
-  { k: 'link-down', re: /(link|port|interface|cable)[^,]*(down|disconnect|dead)|status:down/i, base: 62 },
-  { k: 'cfg', re: /(configuration|config)[^,]*(chang|modif|save|appl)|has been (changed|modified|applied)/i, base: 35, admin: true },
-  { k: 'reboot', re: /(reboot|restart|system (is |has )?(start|boot))/i, base: 45 },
-  { k: 'cpu', cat: /system monitoring/i, re: /cpu:(9\d|100)\b|memory:(9\d|100)\b/i, base: 40 }
-];
+// Référentiel : referentiel.json (livré avec SysLens, l'ordre fait la priorité) + logs/ref-appris.json
+// (types classés par l'IA puis validés par un technicien, et notes de base corrigées).
+const REF_RAW = JSON.parse(fs.readFileSync(path.join(__dirname, 'referentiel.json'), 'utf8')).entries;
+const mkRe = s => s ? new RegExp(s, 'i') : null;
+const REF = REF_RAW.map(e => ({ ...e, cat: mkRe(e.cat), re: mkRe(e.re), priv: mkRe(e.priv) }));
+const LEARN_FILE = path.join(DIR, 'ref-appris.json'); let learned = { types: {}, bases: {} };
+function loadLearned() { try { const j = JSON.parse(fs.readFileSync(LEARN_FILE, 'utf8')); learned = { types: j.types || {}, bases: j.bases || {} }; } catch (e) {} }
+loadLearned();
+// Gabarit d'un message : les valeurs qui changent d'un log à l'autre sont remplacées, pour regrouper les logs d'un même type
+// (et pour que ce qui part vers une IA ne contienne ni adresse, ni compte, ni nom de machine).
+function tpl(s, ev) { let t = String(s || '');
+  if (ev.user && ev.user.length > 2) t = t.split(ev.user).join('<user>'); if (ev.host && ev.host.length > 2) t = t.split(ev.host).join('<host>');
+  return t.replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<mail>').replace(/\b[0-9a-f]{2}([:-])[0-9a-f]{2}(\1[0-9a-f]{2}){4}\b/gi, '<mac>')
+    .replace(/\b\d{1,3}(\.\d{1,3}){3}(\/\d+|:\d+)?\b/g, '<ip>').replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|fr|io|eu|de|be|ch|uk|info|biz|local|lan|ru|cn|xyz|top)\b/gi, '<nom>')
+    .replace(/\b0x[0-9a-f]+\b/gi, '#').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 100); }
+const catT = c => String(c || '?').replace(/\d+/g, '#').slice(0, 60);
+const shortHash = s => crypto.createHash('sha1').update(s).digest('hex').slice(0, 8);
 const isPublic = ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !/^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|0\.)/.test(ip);
 
 const ip2n = ip => String(ip).split(".").reduce((a, o) => a * 256 + (+o || 0), 0);
@@ -47,14 +46,18 @@ function parse(raw, from) {
     const c = rest.slice(ci + 4), parts = []; let cur = '', esc = false;
     for (const ch of c) { if (esc) { cur += ch; esc = false; } else if (ch === '\\') esc = true; else if (ch === '|' && parts.length < 7) { parts.push(cur); cur = ''; } else cur += ch; }
     parts.push(cur); ev.fmt = 'CEF'; ev.product = parts[2] || ''; ev.ver = parts[3] || ''; ev.name = parts[5] || '';
-    const re = /(\w+)=((?:\\=|[^=])*?)(?=\s+\w+=|$)/g; let x; while ((x = re.exec(parts[7] || ''))) ev.f[x[1]] = x[2].replace(/\\=/g, '=').trim();
+    // Une valeur peut contenir « = » (ex. « [type=Web Attack] » dans msg) : elle s'arrête au prochain « clé= » précédé d'un espace.
+    const re = /(\w+)=([\s\S]*?)(?=\s+\w+=|$)/g; let x; while ((x = re.exec(parts[7] || ''))) ev.f[x[1]] = x[2].replace(/\\=/g, '=').trim();
     if (ev.f.ZYlevel && SEV.includes(ev.f.ZYlevel.toLowerCase())) ev.sev = SEV.indexOf(ev.f.ZYlevel.toLowerCase());
   } else {
     const re = /(\w+)="([^"]*)"/g; let x; while ((x = re.exec(rest))) ev.f[x[1]] = x[2];
     if (Object.keys(ev.f).length) ev.fmt = 'ZLD';
   }
   if (!ev.product && /^(XMG|XGS|XS|GS|MG)\d/i.test(ev.host)) ev.product = ev.host;
-  ev.cat = ev.f.cat || ev.name || ''; ev.msg = ev.f.msg || ev.name || rest.trim();
+  // Syslog simple (switchs, bornes) : « authentication: HTTP(s) authentication failure… » → catégorie « authentication ».
+  let tag = ''; if (ev.fmt === 'syslog') for (let i = 0; i < 2; i++) { const t = rest.match(/^\s*([A-Za-z][\w .\/()-]{0,30}?)(?:\[\d+\])?:\s+([\s\S]+)$/); if (!t) break; tag = t[1].trim(); rest = t[2];
+    if (/^(NWA|WAX|WAC|WBE|NAP|GS|XGS|XMG|XS|MG|USG|ATP)\w*\d\w*$/i.test(tag)) { if (!ev.product) ev.product = tag; tag = ''; continue; } break; }   // « borne1 NWA110AX: wlan: … »
+  ev.cat = ev.f.cat || ev.name || tag; ev.msg = ev.f.msg || ev.name || rest.trim();
   ev.src = ev.f.src || ''; ev.dst = ev.f.dst || ''; ev.user = ev.f.suser || ev.f.user || '';
   if (!ev.src) { const x = rest.match(/IP address\s*=\s*([\d.]+)|\bfrom\s+([\d]+\.[\d]+\.[\d]+\.[\d]+)/i); if (x) ev.src = x[1] || x[2]; }
   if (!ev.user) { const x = rest.match(/user(?:name)?\s*[:=]\s*([^,\]\s]+)/i); if (x) ev.user = x[1]; }
@@ -62,24 +65,39 @@ function parse(raw, from) {
 }
 const win = new Map();
 // ctx = false : note de base seule (processus de réception) ; ctx = true : avec répétitions, horaires et force brute (processus principal).
+function matchRef(ev, txt) { const out = isPublic(ev.dst) && !isPublic(ev.src), inb = isPublic(ev.src), priv = ev.f.spriv || ev.f.priv || '';
+  return REF.find(r => (!r.cat || r.cat.test(ev.cat)) && (!r.re || r.re.test(txt)) && (!r.priv || r.priv.test(priv)) && (!r.when || (r.when === 'outbound' ? out : inb))); }
+// Couverture d'un type : precis (règle du référentiel), appris (classé puis validé), categorie (catégorie connue, message pas encore détaillé),
+// propose (l'IA a proposé une note, en attente), qualifier (inconnu, ou catégorie seule avec une gravité error ou plus).
 function score(ev, ctx = true) {
-  const txt = ev.msg + ' ' + ev.name + ' ' + (ev.f.note || '') + ' ' + (ev.f.ZYnote || '');
-  const r = REF.find(r => (!r.cat || r.cat.test(ev.cat)) && (!r.re || r.re.test(txt))), parts = [];
-  ev.k = r ? r.k : 'non-reference'; ev.ref = !!(r && !r.telemetry); ev.rec = !!(r && r.recovers);
-  let s = r ? r.base : BASE[ev.sev]; parts.push((r ? 'référentiel ' + r.k : 'gravité Zyxel ' + SEV[ev.sev]) + ' ' + s);
-  if (r && !r.telemetry && /USG|ATP|FLEX|ZyWALL|VPN/i.test(ev.product)) { s += 10; parts.push('pare-feu de tête +10'); }
-  if (r && r.admin && isPublic(ev.src)) { s += 15; parts.push('IP publique +15'); }
+  const txt = (ev.fmt === 'syslog' && ev.cat ? ev.cat + ': ' : '') + ev.msg + ' ' + ev.name + ' ' + (ev.f.note || '') + ' ' + (ev.f.ZYnote || '');   // syslog simple : la catégorie est un mot du message
+  const tk0 = catT(ev.cat) + ' | ' + tpl(ev.msg || ev.name, ev), L = learned.types[tk0], parts = [];
+  const r = L && L.st === 'valide' ? { k: 'appris:' + shortHash(tk0), base: L.base, floor: L.floor || 0, telemetry: L.base < 30, learned: true } : matchRef(ev, txt);
+  ev.k = r ? r.k : 'inconnu'; ev.ref = !!(r && !r.telemetry && !r.generic); ev.rec = !!(r && r.recovers);
+  ev.tk = r && !r.generic && !r.learned ? catT(ev.cat) + ' | [' + r.k + ']' : tk0;
+  ev.cov = !r ? 'qualifier' : r.learned ? 'appris' : r.generic ? (ev.sev <= 3 ? 'qualifier' : 'categorie') : 'precis';
+  if (ev.cov === 'qualifier' && L && L.st === 'propose') ev.cov = 'propose';
+  const fixed = learned.bases[ev.k];   // note de base corrigée par un technicien
+  let s; if (!r || r.base == null) { s = BASE[ev.sev]; parts.push(['gravité ' + SEV[ev.sev] + ' annoncée par l’équipement', s]); }
+  else { s = fixed != null ? fixed : r.base; parts.push([(r.learned ? 'type appris (validé)' : 'référentiel ' + r.k) + (fixed != null ? ', note corrigée' : ''), s]); }
+  const add = (d, l) => { s += d; parts.push([l, d]); };
+  if (ev.ref && /USG|ATP|FLEX|ZyWALL|VPN/i.test(ev.product)) add(10, 'pare-feu de tête');
+  if (r && r.admin && isPublic(ev.src)) add(15, 'IP publique');
   if (ctx) {
     const key = ev.k + '|' + ev.dev + '|' + ev.src, now = ev.t; let arr = win.get(key); if (!arr) win.set(key, arr = []);
     while (arr.length && now - arr[0] >= 300e3) arr.shift(); arr.push(now); if (arr.length > 250) arr.splice(0, arr.length - 250);
-    const n = arr.length, rep = n >= 200 ? 20 : n >= 50 ? 15 : n >= 10 ? 10 : n >= 3 ? 5 : 0; if (rep && ev.ref) { s += rep; parts.push(n + ' en 5 min +' + rep); }
-    const hr = new Date(now).getHours(); if (r && r.admin && (hr < 8 || hr >= 19)) { s += 10; parts.push('hors horaires +10'); }
-    if (ev.k === 'admin-ko' && n >= 10) { s = Math.max(s, 60); parts.push('règle force brute'); }
+    const n = arr.length, rep = n >= 200 ? 20 : n >= 50 ? 15 : n >= 10 ? 10 : n >= 3 ? 5 : 0; if (rep && ev.ref) add(rep, n + ' en 5 min');
+    const hr = new Date(now).getHours(); if (r && r.admin && (hr < 8 || hr >= 19)) add(10, 'hors horaires');
+    if (r && r.brute && n >= r.brute && s < 60) add(60 - s, 'force brute : ' + n + ' échecs en 5 min');
   }
-  if (r && r.pubFloor && isPublic(ev.src)) { s = Math.max(s, r.pubFloor); parts.push('admin depuis le WAN : critique'); }
-  // Un type pas encore au référentiel ne réveille pas l'astreinte : le niveau annoncé par l'équipement n'est pas assez fiable.
-  if (!r && s > 75) { s = 75; parts.push('type non référencé : grave au plus'); }
-  s = Math.min(100, Math.max(r && r.floor || 0, s, 0)); ev.score = s; ev.level = level(s); ev.why = parts.join(' · ');
+  if (r && r.pubFloor && isPublic(ev.src) && s < r.pubFloor) add(r.pubFloor - s, 'admin depuis le WAN : critique');
+  // Un type pas encore qualifié ne réveille pas l'astreinte : le niveau annoncé par l'équipement n'est pas assez fiable.
+  if ((!r || r.generic) && s > 75) add(75 - s, 'type pas encore qualifié : grave au plus');
+  // Proposition de l'IA en attente : elle peut monter la note (grave au plus), jamais la baisser avant validation.
+  if ((!r || r.generic) && L && L.st === 'propose' && Math.min(75, L.base) > s) add(Math.min(75, L.base) - s, 'proposition de l’IA, à valider');
+  const floor = r && r.floor || 0; if (s < floor) add(floor - s, 'plancher du référentiel');
+  s = Math.min(100, Math.max(0, s)); ev.score = s; ev.level = level(s); ev.parts = parts;
+  ev.why = parts.map(([l, d], i) => l + ' ' + (i && d >= 0 ? '+' : '') + d).join(' · ');
 }
 // Fenêtre de répétition : les sources silencieuses depuis 5 min sont oubliées (sinon les scans d'Internet la font grossir sans fin).
 setInterval(() => { const lim = Date.now() - 300e3; for (const [k, a] of win) if (!a.length || a[a.length - 1] < lim) win.delete(k); if (win.size > 500000) win.clear(); }, 60e3).unref();
@@ -105,8 +123,9 @@ function stage1(line, from) {
   const ev = parse(line, from); ev.dev = devKey(ev); score(ev, false);
   let d = devDelta.get(ev.dev); if (!d) devDelta.set(ev.dev, d = { key: ev.dev, from, host: ev.host, product: ev.product, ver: ev.ver, fmt: ev.fmt, count: 0, first: ev.t, last: 0 });
   d.count++; d.last = ev.t; if (ev.product) { d.product = ev.product; d.ver = ev.ver; }
-  const tk = (ev.cat || '?') + ' | ' + (ev.name || ev.msg.slice(0, 60)); let ty = typeDelta.get(tk);
-  if (!ty) typeDelta.set(tk, ty = { key: tk, cat: ev.cat, name: ev.name, count: 0, sev: SEV[ev.sev], k: ev.k, example: line }); ty.count++;
+  let ty = typeDelta.get(ev.tk);
+  if (!ty) typeDelta.set(ev.tk, ty = { key: ev.tk, cat: ev.cat, msg: tpl(ev.msg || ev.name, ev), sev: SEV[ev.sev], k: ev.k, cov: ev.cov, fam: ev.product, count: 0, first: ev.t, example: line });
+  ty.count++; ty.last = ev.t; if (ev.sev < SEV.indexOf(ty.sev)) ty.sev = SEV[ev.sev];
   if (ev.ref || ev.rec || ev.level !== 'benin') emit(ev, false); else if (budget > 0) { budget--; emit(ev, true); }
 }
 function emit(ev, sample) { if (cluster.isWorker) outBuf.push([ev, sample]); else stage2(ev, sample); }
@@ -125,6 +144,7 @@ if (cluster.isWorker) {   // processus de réception : rien d'autre (ni console,
   if (!SELFTEST) startReceivers(stage1);
   setInterval(() => { if (outBuf.length) { process.send({ t: 'ev', evs: outBuf }); outBuf = []; } }, 50);
   setInterval(() => process.send({ t: 'stats', ...statsPayload() }), 1000);
+  process.on('message', m => { if (m && m.t === 'learned') loadLearned(); });   // référentiel appris modifié dans la console
   process.on('disconnect', () => { rawOut.end(); process.exit(0); });
   return;
 }
@@ -143,8 +163,8 @@ function stage2(ev, sample, replay) {
 }
 // Incidents agrégés côté serveur : un par (type, équipement, source), gardés 7 jours après le dernier événement.
 function incident(ev) {
-  const key = ev.k + '|' + ev.dev + '|' + ev.src; let I = incidents.get(key);
-  if (I) incidents.delete(key); else I = { key, k: ev.k, dev: ev.dev, from: ev.from, host: ev.host, product: ev.product, src: ev.src, cat: ev.cat, first: ev.t, count: 0, score: 0, level: 'benin', samples: [] };
+  const ik = ev.cov === 'precis' || ev.cov === 'appris' ? ev.k : ev.tk, key = ik + '|' + ev.dev + '|' + ev.src; let I = incidents.get(key);
+  if (I) incidents.delete(key); else I = { key, k: ev.k, tk: ev.tk, dev: ev.dev, from: ev.from, host: ev.host, product: ev.product, src: ev.src, cat: ev.cat, first: ev.t, count: 0, score: 0, level: 'benin', samples: [] };
   I.count++; I.last = ev.t; I.msg = ev.msg; I.why = ev.why; I.status = 'ouvert'; I.resolved = null; if (ev.score >= I.score) { I.score = ev.score; I.level = ev.level; }
   const tk = portTok(ev.msg); if (tk) { I.toks = I.toks || []; if (!I.toks.includes(tk)) I.toks.push(tk); }
   I.samples.push(ev.raw); if (I.samples.length > 5) I.samples.shift(); incidents.set(key, I);
@@ -161,11 +181,18 @@ function mergeStats(p) {
   for (const x of p.devs) { let d = devices.get(x.key);
     if (!d) { d = { ...x, count: 0 }; devices.set(x.key, d); console.log(`\n\x1b[32m✓ Premier log reçu de ${x.from}${x.host ? ' (' + x.host + ')' : ''}${x.product ? ' : ' + x.product + ' ' + x.ver : ''} (format ${x.fmt})\x1b[0m\n`); }
     d.count += x.count; d.last = Math.max(d.last || 0, x.last); if (x.product) { d.product = x.product; d.ver = x.ver; } }
-  for (const x of p.types) { let ty = types.get(x.key); if (!ty) { if (types.size >= 5000) continue; types.set(x.key, ty = { ...x, count: 0 }); } ty.count += x.count; }
+  for (const x of p.types) { let ty = types.get(x.key);
+    if (!ty) { if (types.size >= TYPES_MAX) { let lo = null; for (const t of types.values()) if (!lo || t.count < lo.count) lo = t; types.delete(lo.key); } types.set(x.key, ty = { ...x, count: 0 }); }
+    ty.count += x.count; ty.last = Math.max(ty.last || 0, x.last || 0); ty.k = x.k; ty.cov = x.cov; if (SEV.indexOf(x.sev) < SEV.indexOf(ty.sev)) ty.sev = x.sev; if (x.fam) ty.fam = x.fam; typesDirty = true; }
 }
 let lastRate = 0; setInterval(() => { lastRate = Math.round(rate / 10); rate = 0; }, 10e3).unref();
 setInterval(() => { if (!WORKERS) mergeStats(statsPayload()); }, 1000).unref();
-setInterval(() => fs.writeFile(path.join(DIR, 'types.json'), JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 2), () => {}), 15e3).unref();
+// types.json : tous les types de logs vus depuis l'installation (cumulé, gardé d'un redémarrage à l'autre).
+const TYPES_FILE = path.join(DIR, 'types.json'), TYPES_MAX = 5000; let typesDirty = false;
+try { for (const t of JSON.parse(fs.readFileSync(TYPES_FILE, 'utf8'))) if (t && t.key && /\| /.test(t.key) && t.cov) types.set(t.key, t); } catch (e) {}
+const saveTypes = () => { if (!typesDirty) return; typesDirty = false; const tmp = TYPES_FILE + '.part';
+  fs.writeFile(tmp, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1), err => { if (!err) fs.rename(tmp, TYPES_FILE, () => {}); }); };
+setInterval(saveTypes, 15e3).unref();
 // Archives : les jours passés sont compressés, au-delà de RETENTION_DAYS (90 par défaut) ils sont supprimés.
 function maintain() { const today = day(), lim = new Date(Date.now() - RETENTION * 864e5).toISOString().slice(0, 10);
   let names = []; try { names = fs.readdirSync(DIR); } catch (e) { return; }
@@ -321,6 +348,76 @@ async function aiApi(q) {
     if (r.status === 401 || r.status === 403 || (a[1] === 'google' && r.status === 400)) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + '.');
     const j = await r.json(); return { models: (j.data || j.models || []).map(m => m.id || String(m.name || '').replace(/^models\//, '')).filter(Boolean).sort() }; }
   throw new Error('Opération inconnue.'); }
+// --- IA : question ponctuelle au modèle configuré dans la console (clé envoyée par la console à chaque appel, jamais écrite sur disque)
+const AI_CHAT = { chatgpt: 'https://api.openai.com/v1/chat/completions', mistral: 'https://api.mistral.ai/v1/chat/completions', grok: 'https://api.x.ai/v1/chat/completions', hermes: 'https://inference-api.nousresearch.com/v1/chat/completions' };
+const SUB_TOOL = { chatgpt: 'codex', claude: 'claudecode', gemini: 'geminicli' };
+async function aiAsk(c, prompt) {
+  const ms = Math.max(30, Math.min(600, +c.timeout || 180)) * 1000, signal = AbortSignal.timeout(ms), model = String(c.model || '').trim();
+  const post = async (url, headers, body) => { const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal }).catch(e => { throw new Error(e.name === 'TimeoutError' ? 'Le modèle n’a pas répondu à temps.' : 'Le fournisseur ne répond pas.'); });
+    const j = await r.json().catch(() => ({})); if (r.status === 401 || r.status === 403) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + (j.error && j.error.message ? ' : ' + String(j.error.message).slice(0, 200) : '') + '.'); return j; };
+  if (c.mode === 'sub') { const id = SUB_TOOL[c.prov], t = CLI[id]; if (!t) throw new Error('Pas d’abonnement pour ce fournisseur.');
+    const args = id === 'codex' ? ['exec', '--skip-git-repo-check', ...(model ? ['-m', model] : []), '-'] : id === 'claudecode' ? ['-p', ...(model ? ['--model', model] : [])] : ['-p', 'Réponds à la demande ci-dessus.', ...(model ? ['-m', model] : [])];
+    fs.mkdirSync(OUTILS, { recursive: true });
+    return new Promise((ok, ko) => { const p = cp.spawn(cliBin(t), args, { env: cliEnv(t), cwd: OUTILS, shell: WIN }); let out = '', err = '';
+      const k = setTimeout(() => { p.kill(); ko(new Error('Le modèle n’a pas répondu à temps.')); }, ms);
+      p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { err += d; }); p.on('error', e => { clearTimeout(k); ko(new Error(t.bin + ' : ' + e.message)); });
+      p.on('close', code => { clearTimeout(k); code === 0 ? ok(strip(out)) : ko(new Error(t.bin + ' a échoué : ' + strip(err || out).trim().split('\n').pop().slice(0, 200))); });
+      p.stdin.end(prompt); }); }
+  if (!model) throw new Error('Aucun modèle choisi.');
+  if (c.mode === 'local' || c.prov === 'ollama') { let u; try { u = new URL('/api/chat', String(c.url || '')); } catch (e) { throw new Error('Adresse Ollama invalide.'); }
+    const j = await post(u, {}, { model, stream: false, format: 'json', options: { temperature: 0.1 }, messages: [{ role: 'user', content: prompt }] }); return (j.message && j.message.content) || ''; }
+  const key = String(c.key || '').trim(); if (key.length < 20 || /\s/.test(key)) throw new Error('Clé API absente : saisissez-la de nouveau dans Paramètres › Intelligence artificielle.');
+  if (AI_CHAT[c.prov]) { const j = await post(AI_CHAT[c.prov], { authorization: 'Bearer ' + key }, { model, messages: [{ role: 'user', content: prompt }] }); return ((j.choices || [])[0] || {}).message?.content || ''; }
+  if (c.prov === 'claude') { const j = await post('https://api.anthropic.com/v1/messages', { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }); return (j.content || []).map(x => x.text || '').join(''); }
+  if (c.prov === 'gemini') { const j = await post('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model.replace(/^models\//, '')) + ':generateContent', { 'x-goog-api-key': key }, { contents: [{ parts: [{ text: prompt }] }] });
+    return (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map(x => x.text || '').join(''); }
+  throw new Error('Fournisseur inconnu.'); }
+// --- types à qualifier : classés par l'IA (proposition), puis validés ou corrigés par un technicien
+function saveLearned() { const tmp = LEARN_FILE + '.part'; fs.writeFileSync(tmp, JSON.stringify(learned, null, 1), { mode: 0o600 }); fs.renameSync(tmp, LEARN_FILE);
+  for (const w of Object.values(cluster.workers || {})) try { w.send({ t: 'learned' }); } catch (e) {}
+  for (const ty of types.values()) { const L = learned.types[ty.key]; if (L && L.st === 'valide') ty.cov = 'appris'; else if (L && L.st === 'propose' && ty.cov === 'qualifier') ty.cov = 'propose'; else if (!L && (ty.cov === 'propose' || ty.cov === 'appris')) ty.cov = 'qualifier'; } typesDirty = true; }
+const queue = () => [...types.values()].filter(t => t.cov === 'qualifier' && !learned.types[t.key]).sort((a, b) => b.count - a.count);
+let classifying = null;
+async function classify(c, max) {
+  const list = queue().slice(0, Math.max(1, Math.min(40, +max || 25))); if (!list.length) return { proposed: 0, left: 0 };
+  const items = list.map((t, i) => ({ id: i + 1, categorie: t.cat || '', message: t.msg || '', gravite_equipement: t.sev, equipement: famOfProduct(t.fam), vu: t.count }));
+  const prompt = `Tu aides un centre de supervision qui surveille des équipements Zyxel (pare-feu ZLD et uOS, switchs, bornes Wi-Fi) chez des clients.
+Pour chaque type de log ci-dessous, propose une note de gravité de base de 0 à 100 :
+- 85 à 100, critique : action immédiate (malware actif, administrateur connecté depuis Internet, panne totale du site)
+- 60 à 84, grave : à traiter dans la journée (lien ou VPN tombé, attaque en cours, matériel en défaut)
+- 30 à 59, moyen : à surveiller (changement de configuration, échecs isolés, ressource qui sature)
+- 0 à 29, bénin : routine, relevés périodiques, fonctionnement normal
+Les valeurs variables ont été remplacées : <ip>, <mac>, <user>, <host>, <nom>, <mail>, # pour les nombres.
+Réponds uniquement par un objet JSON, sans texte autour :
+{"types":[{"id":1,"base":0,"sig":"nom court en français (60 caractères au plus)","mean":"ce que ce log veut dire, une phrase","act":"ce que le technicien doit faire, une phrase","confiance":0.0}]}
+Si tu ne connais pas ce message, mets une confiance inférieure à 0.5 et une note prudente.
+Types :
+${JSON.stringify(items, null, 1)}`;
+  const out = await aiAsk(c, prompt), a = out.indexOf('{'), b = out.lastIndexOf('}'); let j;
+  try { j = JSON.parse(out.slice(a, b + 1)); } catch (e) { throw new Error('Réponse de l’IA illisible (pas de JSON).'); }
+  const src = 'IA ' + String(c.prov || '') + (c.model ? ' ' + String(c.model).slice(0, 60) : '') + ', ' + new Date().toISOString().slice(0, 10); let n = 0;
+  for (const x of Array.isArray(j.types) ? j.types : []) { const t = list[(+x.id || 0) - 1]; if (!t || !Number.isFinite(+x.base)) continue;
+    learned.types[t.key] = { st: 'propose', base: Math.round(Math.max(0, Math.min(100, +x.base))), sig: String(x.sig || t.msg).slice(0, 80), mean: String(x.mean || '').slice(0, 300), act: String(x.act || '').slice(0, 300),
+      conf: Math.max(0, Math.min(1, +x.confiance || 0)), src, at: Date.now(), cat: t.cat, msg: t.msg, sev: t.sev }; n++; }
+  if (n) saveLearned(); console.log(`\x1b[36mIA : ${n} type(s) de log classé(s), à valider dans la console (Référentiel)\x1b[0m`);
+  return { proposed: n, left: queue().length }; }
+const famOfProduct = p => /^(GS|XGS|XMG|XS|MS|MG)\d/i.test(p || '') ? 'switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p || '') ? 'borne Wi-Fi' : p ? 'pare-feu' : 'inconnu';
+async function refApi(q) {
+  const num = v => v === null || v === '' || v === undefined ? null : Math.round(Math.max(0, Math.min(100, +v)));
+  if (q.op === 'classify') { if (classifying) throw new Error('Un classement est déjà en cours.'); classifying = classify(q.ai || {}, q.max).finally(() => { classifying = null; }); return classifying; }
+  if (q.op === 'base') { const k = String(q.k || ''); if (!REF.some(r => r.k === k)) throw new Error('Entrée inconnue.'); const b = num(q.base); if (b === null) delete learned.bases[k]; else learned.bases[k] = b; saveLearned(); return { ok: true }; }
+  const key = String(q.key || ''), t = types.get(key), L = learned.types[key]; if (!t && !L) throw new Error('Type inconnu.');
+  if (q.op === 'valide' || q.op === 'manuel') { const b = num(q.base != null ? q.base : L && L.base); if (b === null || !Number.isFinite(b)) throw new Error('Note invalide.');
+    learned.types[key] = { ...(L || {}), st: 'valide', base: b, sig: String(q.sig || (L && L.sig) || (t && t.msg) || key).slice(0, 80), mean: String(q.mean || (L && L.mean) || '').slice(0, 300), act: String(q.act || (L && L.act) || '').slice(0, 300),
+      src: q.op === 'manuel' ? 'Classé par un technicien, ' + new Date().toISOString().slice(0, 10) : ((L && L.src) || 'IA') + ', validé', at: Date.now(), cat: (t && t.cat) || (L && L.cat), msg: (t && t.msg) || (L && L.msg) };
+    saveLearned(); return { ok: true }; }
+  if (q.op === 'rejet') { if (L) { L.st = 'rejete'; L.at = Date.now(); saveLearned(); } return { ok: true }; }
+  if (q.op === 'oublier') { delete learned.types[key]; saveLearned(); return { ok: true }; }
+  throw new Error('Opération inconnue.'); }
+function refPayload() { const tys = [...types.values()].sort((a, b) => b.count - a.count), cov = {};
+  for (const t of tys) cov[t.cov] = (cov[t.cov] || 0) + t.count;
+  return { entries: REF_RAW, bases: learned.bases, learned: Object.entries(learned.types).map(([key, v]) => ({ key, k: 'appris:' + shortHash(key), ...v })),
+    types: tys.slice(0, 3000), coverage: cov, queue: queue().length, classifying: !!classifying }; }
 const sameOrigin = q => { const o = q.headers.origin; return (!o || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o)) && /application\/json/.test(q.headers['content-type'] || ''); };
 const webSrv = http.createServer((q, r) => {
   if (q.url === '/api/version') { let news = []; try { news = JSON.parse(fs.readFileSync(path.join(__dirname, 'nouveautes.json'), 'utf8')).slice(0, 5); } catch (e) {} r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ ...upd, news })); }
@@ -336,6 +433,11 @@ const webSrv = http.createServer((q, r) => {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 8192) q.destroy(); });
     q.on('end', async () => { try { json(200, await aiApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
+  else if (q.url === '/api/referentiel') { r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(refPayload())); }
+  else if (q.url === '/api/ref' && q.method === 'POST') {
+    const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
+    if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 16384) q.destroy(); });
+    q.on('end', async () => { try { json(200, await refApi(JSON.parse(body))); } catch (e) { json(400, { error: e.message }); } }); }
   else if (q.url === '/api/tg' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' });
@@ -379,11 +481,12 @@ async function checkUpdate(install) {
   } catch (e) { upd.state = 'error'; upd.msg = e.message; upd.checkedAt = Date.now(); console.log(`\x1b[33mMise à jour : ${e.message}\x1b[0m`); }
   return upd; }
 function restart() { let gone = false; stopping = true; const go = () => { if (gone) return; gone = true; cp.spawn(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, SYSLENS_WAIT_PID: String(process.pid) } }); process.exit(0); };
-  setTimeout(go, 4000); evOut.end(); rawOut.end();
+  setTimeout(go, 4000); evOut.end(); rawOut.end(); typesDirty = true; try { fs.writeFileSync(TYPES_FILE, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1)); } catch (e) {}
   if (rx) { try { rx.udp.close(); } catch (e) {} rx.tcp.close(); } for (const w of Object.values(cluster.workers || {})) w.kill();
   webSrv.close(() => setTimeout(go, 300)); if (webSrv.closeAllConnections) webSrv.closeAllConnections(); }
 
-if (SELFTEST) { console.log('selftest ok ' + VERSION); process.exit(0); }
+if (SELFTEST) { console.log('selftest ok ' + VERSION + ' · référentiel ' + REF.length + ' entrées'); process.exit(0); }
+for (const sg of ['SIGINT', 'SIGTERM']) process.on(sg, () => { try { if (typesDirty) fs.writeFileSync(TYPES_FILE, JSON.stringify([...types.values()].sort((a, b) => b.count - a.count), null, 1)); } catch (e) {} process.exit(0); });
 if (WORKERS) startWorkers(); else rx = startReceivers(stage1);
 setTimeout(maintain, 5000).unref(); setInterval(maintain, 3600e3).unref();
 setInterval(() => { if (lastRate || incidents.size) console.log(`\x1b[2mDébit ${lastRate} logs/s · ${devices.size} équipements · ${incidents.size} incidents · ${WORKERS || 1} processus de réception\x1b[0m`); }, 300e3).unref();

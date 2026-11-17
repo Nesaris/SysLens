@@ -428,6 +428,8 @@ const isPub = ip => { const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(ip || ''); if (!
 function srcClients(ip) { if (!srcCache.has(ip)) srcCache.set(ip, new Set(events.filter(e => e.src === ip).map(e => e.cli)).size); return srcCache.get(ip); }
 function scoreOf(e, count) {
   const c = CAT[e.k], d = devices.find(x => x.id === e.dev), cl = clients.find(x => x.id === e.cli);
+  if (e.srv != null) { const parts = (e.parts || [['Note du récepteur', e.srv]]).slice(); let s = e.srv;
+    if (d && d.maint) { parts.push(['Maintenance déclarée', -30]); s = Math.max(0, s - 30); } return {s, parts, floor: 0}; }
   if (c && c.quiet) return {s: c.base, parts: [['Base (référentiel) — relevé de routine, sans bonus', c.base]], floor: 0};
   const base = c && c.st === 'actif' ? c.base : VSEV[e.vsev], parts = [['Base' + (c && c.st === 'actif' ? ' (référentiel)' : ' (gravité constructeur ' + e.vsev + ')'), base]];
   if (d.crit === 'tete') parts.push(['Équipement : pare-feu de tête', 10]); else if (d.crit === 'coeur') parts.push(['Équipement : switch cœur', 5]);
@@ -446,7 +448,8 @@ function incidents() {
   const g = {};
   for (const e of events) { const key = e.cli + '|' + e.dev + '|' + e.k + '|' + (isPub(e.src) ? e.src : ''); (g[key] ||= []).push(e); }
   const out = [], up = {};
-  for (const e of events) if (CAT[e.k] && /-up$/.test(e.k)) up[e.dev + '|' + e.k.replace(/-up$/, '-down')] = Math.max(up[e.dev + '|' + e.k.replace(/-up$/, '-down')] || 0, e.t);
+  for (const e of events) { const c = CAT[e.k], rec = c && (c.recovers || (/-up$/.test(e.k) ? [e.k.replace(/-up$/, '-down')] : []));
+    if (rec) for (const k of rec) up[e.dev + '|' + k] = Math.max(up[e.dev + '|' + k] || 0, e.t); }
   for (const [key, list] of Object.entries(g)) {
     const last = list[list.length - 1], sc = scoreOf(last, list.length), lv = level(sc.s);
     if (lv === 'benin' || (CAT[last.k] && CAT[last.k].quiet) || last.k === 'stp' || last.k === 'dfs' || last.k === 'uos-deny') continue;
@@ -579,7 +582,20 @@ function logTable() {
 V.devices = () => `<h1>Équipements</h1><p class="sub">Inventaire par client. Le seuil de silence dépend de la famille : pare-feu ${SILENCE['Pare-feu']} min, switch et borne ${SILENCE.Switch} min.</p>
   <section class="panel"><table class="stack"><thead><tr><th>Équipement</th><th>Client</th><th>Famille</th><th>Modèle</th><th>Firmware</th><th>Source</th><th>Criticité</th><th class="num">Dernier log</th><th></th></tr></thead><tbody>${byCli(devices).map(d => `<tr><td data-l="Équipement" class="mono">${d.id}</td><td data-l="Client">${esc(cName(d.cli))}</td><td data-l="Famille">${d.fam}</td><td data-l="Modèle">${d.model}</td><td data-l="Firmware" class="mono">${d.fw}</td><td data-l="Source">${d.src}</td><td data-l="Criticité">${d.crit === 'tete' ? 'Pare-feu de tête' : d.crit === 'coeur' ? 'Switch cœur' : 'Standard'}</td><td data-l="Dernier log" class="num" style="color:${d.last > SILENCE[d.fam] ? 'var(--grav)' : 'inherit'}">${d.last} min</td><td><button class="btn" data-maint="${d.id}">${d.maint ? 'Fin de maintenance' : 'Déclarer maintenance'}</button></td></tr>`).join('')}</tbody></table></section>
   <section class="panel" style="margin-top:16px"><h2>Fiche de réglage — pare-feu ZLD (USG FLEX, ATP)</h2><ol><li>Log &amp; Report &gt; Log Settings &gt; Remote Server 1 à 4 : en réserver un à SysLens.</li><li>Format : <b>CEF/Syslog</b> (le format Syslog simple insère l'année hors RFC 3164).</li><li>Adresse : le collecteur du site, port 514, facility local1.</li><li>Catégories : User, IDP, ADP, Anti-Malware, Sandbox, IP Reputation, DNS Threat Filter, IKE/IPsec, Interface, System Monitoring en « normal » ; Traffic Log selon le contrat client.</li></ol></section>`;
-V.catalog = () => { const prop = catalog.filter(c => c.st === 'propose');
+const COVN = {precis: 'Règle précise', appris: 'Type appris', categorie: 'Catégorie connue', propose: 'Proposé par l’IA', qualifier: 'À qualifier'};
+function catalogLive() { const prop = catalog.filter(c => c.st === 'propose'), cov = REFD.coverage || {}, tot = Object.values(cov).reduce((a, b) => a + b, 0) || 1;
+  const q = REFD.types.filter(t => t.cov === 'qualifier' && !REFD.learned.some(l => l.key === t.key)), rej = REFD.learned.filter(l => l.st === 'rejete');
+  const pct = k => Math.round((cov[k] || 0) / tot * 1000) / 10;
+  return `<h1>Référentiel Zyxel</h1><p class="sub">${REFD.entries.length} entrées livrées · ${REFD.learned.filter(l => l.st === 'valide').length} types appris · ${REFD.types.length} types de logs vus depuis l’installation.</p>
+  <section class="panel"><h2>Couverture des logs reçus</h2><div class="kpis" style="display:flex;gap:28px;flex-wrap:wrap">${['precis', 'appris', 'categorie', 'propose', 'qualifier'].map(k => `<div><b style="font-size:22px">${pct(k)} %</b><div class="note">${COVN[k]}</div></div>`).join('')}</div>
+    <p class="note" style="margin-top:12px">« Catégorie connue » : message pas encore détaillé mais de faible gravité. « À qualifier » : rien ne le décrit, ou sa catégorie seule ne suffit pas (gravité error ou plus) ; il est noté grave au plus en attendant.</p></section>
+  <section class="panel" style="margin-top:16px"><h2>Types à qualifier <small>${q.length}</small></h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><button class="btn p" data-classify ${q.length && !REFD.classifying ? '' : 'disabled'}>Faire classer par l’IA${q.length ? ' (' + Math.min(25, q.length) + ')' : ''}</button><span class="note" role="status">${esc(refMsg || (ai.saved ? 'Classement automatique toutes les 10 min tant que la console est ouverte · ' + ai.provName() : 'IA pas encore configurée : Paramètres › Intelligence artificielle.'))}</span></div>
+    ${q.length ? `<table class="stack"><thead><tr><th class="num">Vus</th><th>Catégorie</th><th>Message (valeurs masquées)</th><th>Gravité annoncée</th><th class="num">Note</th><th></th></tr></thead><tbody>${q.slice(0, 200).map(t => `<tr><td data-l="Vus" class="num">${t.count}</td><td data-l="Catégorie">${esc(t.cat || '—')}</td><td data-l="Message"><span class="mono" title="${esc(t.example || '')}">${esc(t.msg)}</span></td><td data-l="Gravité">${esc(t.sev)}</td><td data-l="Note" class="num"><input type="number" min="0" max="100" placeholder="—" data-qbase="${esc(t.key)}" style="width:76px;text-align:right" aria-label="Note de base"></td><td><button class="btn" data-qsave="${esc(t.key)}">Classer</button></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Tous les types de logs reçus sont couverts.</p>'}</section>
+  ${prop.length ? `<section class="panel" style="margin-top:16px"><h2>Propositions de l’IA à valider <small>${prop.length}</small></h2><p class="note">Tant qu’elle n’est pas validée, une proposition peut monter la note (grave au plus), jamais la baisser.</p><table class="stack"><thead><tr><th>Catégorie</th><th>Type de log</th><th class="num">Note</th><th>Source</th><th></th></tr></thead><tbody>${prop.map(c => `<tr><td data-l="Catégorie">${esc(c.cat)}</td><td data-l="Type">${esc(c.sig)}<br><span class="sub" style="font-size:13px">${esc(c.mean)} ${esc(c.act)}</span></td><td data-l="Note" class="num"><input type="number" min="0" max="100" value="${c.base}" data-pbase="${esc(c.pkey)}" style="width:76px;text-align:right" aria-label="Note"></td><td data-l="Source">${esc(c.src)}</td><td><button class="btn p" data-pval="${esc(c.pkey)}">Valider</button> <button class="btn" data-prej="${esc(c.pkey)}">Rejeter</button></td></tr>`).join('')}</tbody></table></section>` : ''}
+  ${rej.length ? `<p class="note" style="margin-top:10px">${rej.length} proposition(s) rejetée(s) : à classer à la main dans le tableau ci-dessus si elles reviennent.</p>` : ''}
+  <section class="panel" style="margin-top:16px"><h2>Entrées actives <small>${catalog.filter(c => c.st === 'actif' && !c.k.startsWith('nr:')).length}</small></h2><table class="stack"><thead><tr><th>Famille</th><th>Catégorie</th><th>Type de log</th><th class="num">Base</th><th class="num">Plancher</th><th>Action recommandée</th><th>Source</th></tr></thead><tbody>${catalog.filter(c => c.st === 'actif' && !c.k.startsWith('nr:')).map(c => `<tr><td data-l="Famille">${c.fam}</td><td data-l="Catégorie">${esc(c.cat)}</td><td data-l="Type">${esc(c.sig)}${c.quiet ? ' <span class="tag">routine</span>' : ''}</td><td data-l="Base" class="num">${c.base == null ? '<span class="note" title="Gravité annoncée par l’équipement, grave au plus">équip.</span>' : c.learned ? c.base : `<input type="number" min="0" max="100" value="${c.base}" data-rbase="${c.k}" style="width:76px;text-align:right" aria-label="Note de base">`}</td><td data-l="Plancher" class="num">${c.floor || '—'}</td><td data-l="Action">${esc(c.act)}</td><td data-l="Source">${esc(c.src)}</td></tr>`).join('')}</tbody></table></section>`; }
+V.catalog = () => { if (LIVEMODE) return catalogLive(); const prop = catalog.filter(c => c.st === 'propose');
   return `<h1>Référentiel Zyxel</h1><p class="sub">${catalog.filter(c => c.st === 'actif').length} entrées actives · ${prop.length} propositions de l'IA en attente de validation. Une proposition ne note rien tant qu'elle n'est pas validée.</p>
   ${prop.length ? `<section class="panel"><h2>Propositions à valider</h2><table class="stack"><thead><tr><th>Famille</th><th>Catégorie</th><th>Type de log</th><th class="num">Base</th><th>Source</th><th></th></tr></thead><tbody>${prop.map(c => `<tr><td data-l="Famille">${c.fam}</td><td data-l="Catégorie">${c.cat}</td><td data-l="Type">${esc(c.sig)}<br><span class="sub" style="font-size:13px">${esc(c.mean)}</span></td><td data-l="Base" class="num">${c.base}</td><td data-l="Source">${esc(c.src)}</td><td><button class="btn p" data-val="${c.k}">Valider</button> <button class="btn" data-rej="${c.k}">Rejeter</button></td></tr>`).join('')}</tbody></table></section>` : ''}
   <section class="panel" style="margin-top:16px"><h2>Entrées actives</h2><table class="stack"><thead><tr><th>Famille</th><th>Catégorie</th><th>Type de log</th><th class="num">Base</th><th class="num">Plancher</th><th>Action recommandée</th><th>Source</th></tr></thead><tbody>${catalog.filter(c => c.st === 'actif').map(c => `<tr><td data-l="Famille">${c.fam}</td><td data-l="Catégorie">${c.cat}</td><td data-l="Type">${esc(c.sig)}</td><td data-l="Base" class="num"><input type="number" min="0" max="100" value="${c.base}" data-base="${c.k}" style="width:76px;text-align:right" aria-label="Note de base"></td><td data-l="Plancher" class="num">${c.floor || '—'}</td><td data-l="Action">${esc(c.act)}</td><td data-l="Source">${esc(c.src)}</td></tr>`).join('')}</tbody></table></section>`; };
@@ -892,7 +908,8 @@ document.addEventListener('change', e => { if (!xw || !xw.ai || !e.target.closes
   if (t.dataset.kmap) { s[t.dataset.kmap][t.dataset.mk] = t.value; xOk(); } });
 document.addEventListener('input', e => { if (xw && xw.ai && e.target.dataset.kmap && e.target.closest('#drawer')) { XS[xw.id][e.target.dataset.kmap][e.target.dataset.mk] = e.target.value; xOk(); } });
 function aiSave() { const p = AIP.find(x => x.id === xw.id), s = XS[xw.id];
-  ai.prov = p.id; ai.mode = s.mode; ai.model = s.model; ai.url = s.mode === 'local' ? s.url : ''; ai.allowed = s.mode === 'local' ? [] : Object.keys(s.auth).filter(id => s.auth[id].trim()); }
+  ai.prov = p.id; ai.mode = s.mode; ai.model = s.model; ai.url = s.mode === 'local' ? s.url : ''; ai.allowed = s.mode === 'local' ? [] : Object.keys(s.auth).filter(id => s.auth[id].trim()); ai.saved = true;
+  if (LIVEMODE && REFD.queue) setTimeout(() => refClassify(true), 1000); }
 // --- détail d'incident
 function openInc(key) {
   const i = incidents().find(x => x.key === key); if (!i) return;
@@ -941,7 +958,7 @@ function render() { nav(); let h = V[route()]();
   if (fCli && !devices.some(d => d.cli === fCli)) h = `<p class="ai" style="margin-bottom:16px"><b>${esc(cName(fCli))}</b> n'a encore aucun équipement rattaché. Installez un collecteur sur son site, ou associez son organisation Nebula, depuis Paramètres > Extensions.</p>` + h;
   $('#view').innerHTML = h; }
 window.addEventListener('hashchange', () => { if ($('#drawer').classList.contains('open')) closeInc(); render(); });
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const t = e.target, row = t.closest('[data-inc]'), ev = t.closest('[data-ev]'), lv = t.closest('[data-lv]');
   if (lv) incFilter = lv.dataset.lv === 'benin' ? '' : lv.dataset.lv;
   if (lv && lv.dataset.lv === 'benin') { e.preventDefault(); logFilter.lv = 'benin'; location.hash = 'logs'; return; }
@@ -952,6 +969,12 @@ document.addEventListener('click', e => {
   if (t.id === 'odoo') { $('#dMsg').textContent = 'Démo : en production, ticket helpdesk.ticket créé par svc-siem avec x_incident_ref = ' + $('#drawer').dataset.key.split('|').slice(0,3).join('-') + '.'; return; }
   if (t.id === 'lpause') { paused = !paused; render(); return; }
   if (t.dataset.maint) { const d = devices.find(x => x.id === t.dataset.maint); d.maint = !d.maint; render(); return; }
+  if (t.closest('[data-classify]')) { refClassify(false); return; }
+  if (t.dataset.pval || t.dataset.prej || t.dataset.qsave) { const key = t.dataset.pval || t.dataset.prej || t.dataset.qsave;
+    const inp = [...document.querySelectorAll(t.dataset.qsave ? '[data-qbase]' : '[data-pbase]')].find(i => (i.dataset.qbase || i.dataset.pbase) === key);
+    if (t.dataset.qsave && (!inp || inp.value === '')) { refMsg = 'Saisissez une note de 0 à 100 avant de classer.'; render(); return; }
+    t.disabled = true; try { await refPost(t.dataset.prej ? {op: 'rejet', key} : {op: t.dataset.qsave ? 'manuel' : 'valide', key, base: inp ? +inp.value : undefined}); refMsg = t.dataset.prej ? 'Proposition rejetée.' : 'Type enregistré : il est noté ainsi dès maintenant.'; } catch (err) { refMsg = err.message; }
+    await refLoad(); render(); return; }
   if (t.dataset.val || t.dataset.rej) { const c = CAT[t.dataset.val || t.dataset.rej]; if (t.dataset.val) c.st = 'actif'; else catalog.splice(catalog.indexOf(c), 1); render(); return; }
   if (t.dataset.test) { const r = rules[+t.dataset.test], hits = r.k === 'silence' ? devices.filter(d => d.last > SILENCE[d.fam]).length : events.filter(x => x.k === r.k).length;
     const grp = r.k === 'silence' ? hits : incidents().filter(i => i.last.k === r.k).length; $('#rt' + t.dataset.test).textContent = `${hits} événement${hits > 1 ? 's' : ''} correspondant${hits > 1 ? 's' : ''} en 24 h → ${grp} incident${grp > 1 ? 's' : ''}.`; return; }
@@ -962,6 +985,7 @@ document.addEventListener('change', e => {
   if (t.id === 'lfam') { logFilter.fam = t.value; $('#logbox').innerHTML = logTable(); }
   if (t.id === 'llv') { logFilter.lv = t.value; $('#logbox').innerHTML = logTable(); }
   if (t.dataset.rule) rules[+t.dataset.rule].on = t.checked;
+  if (t.dataset.rbase) { const k = t.dataset.rbase, v = t.value === '' ? null : Math.max(0, Math.min(100, +t.value || 0)); refPost({op: 'base', k, base: v}).then(() => { refMsg = 'Note de « ' + CAT[k].sig + ' » enregistrée.'; refLoad(); }, err => { refMsg = err.message; render(); }); }
   if (t.dataset.base) { CAT[t.dataset.base].base = Math.max(0, Math.min(100, +t.value || 0)); nav(); }
   if (t.id === 'docIn') { for (const f of t.files) docs.push({t: f.name, m: 'à préciser', v: '—', p: f.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'HTML', s: "En file d'indexation", n: 0}); render(); }
 });
@@ -1161,19 +1185,19 @@ function versionSeen(v) { if (!v) return; if (!srvVersion) { srvVersion = v; ret
 let liveSince = 0, liveOk = null, liveN = 0;
 const MODELS = {'USG20W-VPN':'USG FLEX 50W (USG20W-VPN)','USG20-VPN':'USG FLEX 50 (USG20-VPN)'};
 const famOf = p => /^(GS|XGS|XMG|XS|MS|MG)/i.test(p) ? 'Switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p) ? 'Borne' : 'Pare-feu';
-function liveK(x) { const f = x.f || {}, txt = (x.msg || '') + ' ' + (x.name || '');
-  if (/interface statistics/i.test(x.cat || '')) return 'if-stats';
-  if (/system monitoring/i.test(x.cat || '')) return /cpu:(9\d|100)\b|memory:(9\d|100)\b/i.test(txt) ? 'cpu' : 'sysmon';
-  if (/default rule/i.test(txt) && /drop|deny|block/i.test(txt + ' ' + (f.act || ''))) return 'deny-default';
-  if (x.k && CAT[x.k]) return x.k;
-  const k = 'nr:' + (x.cat || x.name || 'Autre');
-  if (!CAT[k]) CAT[k] = {k, fam:'Toutes', cat:x.cat || '—', sig:(x.name && x.name !== x.cat ? x.name + ' · ' : '') + (x.cat || 'Log'), base:0, floor:0, st:'nonref', mean:"Type de log pas encore dans le référentiel : noté avec la gravité annoncée par Zyxel.", act:'À qualifier, puis ajouter au référentiel.', src:'Gravité constructeur (CEF)'};
+// Le récepteur a déjà classé le log (referentiel.json + types appris) : la console reprend sa décision.
+function liveK(x) {
+  if (x.cov === 'precis' && CAT[x.k]) return x.k;
+  if (x.cov === 'appris') { const L = (REFD.learned || []).find(l => l.k === x.k); if (!CAT[x.k]) addCat({k: x.k, fam: 'Toutes', cat: x.cat || '—', sig: L ? L.sig : (x.msg || '').slice(0, 60), base: L ? L.base : x.score, st: 'actif', mean: L ? L.mean : '', act: L ? L.act : '', src: L ? L.src : 'Type appris'}); return x.k; }
+  const k = 'nr:' + (x.tk || x.cat || 'Autre'), g = CAT[x.k];
+  if (!CAT[k]) addCat({k, fam: g ? g.fam : 'Toutes', cat: x.cat || '—', sig: (x.msg || x.cat || 'Log').slice(0, 70), base: 0, floor: 0, st: 'nonref', mean: g && g.generic ? g.mean : "Type de log pas encore au référentiel : noté avec la gravité annoncée par l'équipement, grave au plus.", act: 'À qualifier (Détection › Référentiel), par l’IA ou à la main.', src: x.cov === 'propose' ? 'Proposition de l’IA en attente' : 'Gravité constructeur'});
   return k; }
+const addCat = c => { catalog.push(c); CAT[c.k] = c; };
 function liveDev(x) { const id = x.host || x.from; let d = devices.find(v => v.id === id);
   if (!d) { const fam = famOf(x.product || ''); d = {id, cli:'cli-test', fam, model:MODELS[x.product] || x.product || '?', fw:x.ver ? 'ZLD ' + x.ver : '—', src:x.fmt === 'CEF' ? 'Syslog CEF' : 'Syslog', crit:fam === 'Pare-feu' ? 'tete' : '', last:0, ip:x.from, lastT:x.t}; devices.push(d); }
   d.lastT = Math.max(d.lastT || 0, x.t); return d; }
 function liveEv(x) { const d = liveDev(x), k = liveK(x), c = CAT[k], f = x.f || {};
-  events.push({id: ++evId, t: x.t, dev: d.id, cli: d.cli, fam: d.fam, model: d.model, k, cat: x.cat || c.cat, msg: x.msg || '', vsev: x.sev ?? 6, src: f.src || '', dst: f.dst || '', user: f.user || '', admin: !!c.admin, maint: false, raw: x.raw || ''}); }
+  events.push({id: ++evId, t: x.t, dev: d.id, cli: d.cli, fam: d.fam, model: d.model, k, cat: x.cat || c.cat, msg: x.msg || '', vsev: x.sev ?? 6, src: f.src || '', dst: f.dst || '', user: f.user || '', admin: !!c.admin, maint: false, raw: x.raw || '', srv: x.score, parts: x.parts, cov: x.cov}); }
 async function livePoll() { if (paused) return;
   try { const j = await (await fetch('/api/events?since=' + liveSince, {cache:'no-store'})).json();
     versionSeen(j.version);
@@ -1185,7 +1209,24 @@ async function livePoll() { if (paused) return;
     if (r === 'logs' && !openRow) { if (j.events.length) $('#logbox').innerHTML = logTable(); nav(); }
     else if (first || ((r === 'overview' || r === 'incidents' || r === 'devices') && j.events.length && liveN % 3 === 0 && !busy)) render(); else nav();
   } catch (err) { liveOk = false; nav(); } }
-if (LIVEMODE) { updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; livePoll(); setInterval(livePoll, 3000); }
+// Référentiel du récepteur : entrées livrées, types appris, types vus (et ceux qui restent à qualifier).
+let REFD = {entries: [], learned: [], types: [], coverage: {}, queue: 0}, refMsg = '';
+const catLbl = s => s ? s.replace(/\\b|\^|\$|\\/g, '').split('|')[0].replace(/[()?]/g, '').replace(/^\w/, c => c.toUpperCase()) : 'Toutes';
+async function refLoad() { try { REFD = await (await fetch('/api/referentiel', {cache: 'no-store'})).json(); } catch (e) { return; }
+  const old = catalog.slice(); catalog.length = 0; for (const k in CAT) delete CAT[k];
+  for (const e of REFD.entries) addCat({k: e.k, fam: e.fam, cat: catLbl(e.cat), sig: e.sig, base: (REFD.bases || {})[e.k] ?? e.base, rbase: e.base, floor: e.floor || 0, quiet: !!e.telemetry, admin: !!e.admin, generic: !!e.generic, recovers: e.recovers, mean: e.mean, act: e.act, src: e.src, st: 'actif'});
+  for (const L of REFD.learned) if (L.st === 'propose' || L.st === 'valide') addCat({k: L.k, pkey: L.key, fam: 'Toutes', cat: L.cat || '—', sig: L.sig, base: L.base, floor: 0, mean: L.mean, act: L.act + (L.st === 'propose' && L.conf != null ? ` (confiance ${Math.round(L.conf * 100)} %)` : ''), src: L.src, st: L.st === 'propose' ? 'propose' : 'actif', learned: true});
+  for (const c of old) if (!CAT[c.k] && /^(nr|appris):/.test(c.k)) addCat(c);   // types rencontrés par la console (à qualifier, oubliés…) : gardés pour les incidents affichés
+  if (route() === 'catalog' && !document.activeElement.matches('input')) render(); }
+async function refPost(body) { const r = await fetch('/api/ref', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; }
+const aiCfg = () => { const s = XS[ai.prov] || {}; return {prov: ai.prov, mode: ai.mode, model: ai.model, url: ai.mode === 'local' ? (s.url || ai.url) : '', key: ai.mode === 'api' ? (s.key || '').trim() : '', timeout: ai.timeout}; };
+async function refClassify(auto) { if (!ai.saved) { if (!auto) { refMsg = 'Configurez d’abord l’IA (Paramètres › Intelligence artificielle).'; render(); } return; }
+  if (!REFD.queue || REFD.classifying) return; refMsg = 'Classement par l’IA en cours…'; if (!auto) render();
+  try { const j = await refPost({op: 'classify', ai: aiCfg(), max: 25}); aiLog.push({t: Date.now(), cli: 'cli-test', inc: 'Classement de ' + j.proposed + ' type(s) de log', p: ai.provName(), n: '—'});
+    refMsg = j.proposed + ' type(s) classé(s) par l’IA, à valider ci-dessous' + (j.left ? ` (${j.left} encore en file)` : '') + '.'; } catch (e) { refMsg = 'IA : ' + e.message; }
+  await refLoad(); render(); }
+if (LIVEMODE) { refLoad(); setInterval(refLoad, 30e3); setInterval(() => refClassify(true), 10 * 60e3);
+  updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; refLoad().finally(() => { livePoll(); setInterval(livePoll, 3000); }); }
 render();
 }
 </script>

@@ -66,13 +66,27 @@ Sur un pare-feu ZLD (USG FLEX, ATP, USG) :
 
 Réglez aussi l'heure (NTP et fuseau) : SysLens horodate chaque log à la réception, mais une heure fausse sur l'équipement gêne la lecture des logs bruts.
 
+## Référentiel
+
+`referentiel.json` décrit les logs Zyxel connus (pare-feu ZLD et uOS, switchs, bornes, Nebula) : catégorie, message, note de base, plancher, signification et action. L'ordre fait la priorité : la première entrée qui correspond note le log.
+
+Chaque type reçu est classé :
+
+- **règle précise** : une entrée du référentiel le décrit ;
+- **catégorie connue** : seule sa catégorie est connue, et sa gravité est faible ;
+- **type appris** : classé par l'IA ou par un technicien, puis validé (`logs/ref-appris.json`) ;
+- **à qualifier** : rien ne le décrit, ou sa catégorie seule ne suffit pas (gravité error ou plus). Il est noté avec la gravité annoncée par l'équipement, grave au plus.
+
+Les types à qualifier sont envoyés à l'IA choisie dans la console, par lots de 25, sous forme de gabarits : adresses IP et MAC, comptes, noms de machine et de domaine sont masqués. Tant qu'un technicien ne l'a pas validée, une proposition de l'IA peut monter la note (grave au plus), jamais la baisser.
+
 ## Données
 
 Tout reste sur la machine :
 
 - `logs/raw-AAAA-MM-JJ.log.gz` : toutes les lignes reçues, telles quelles, compressées au fil de l'eau (`zcat` pour les lire) ;
 - `logs/events-AAAA-MM-JJ.jsonl` : les événements utiles (référentiel, ou gravité moyen et plus), décodés, notés, avec leur ligne brute ;
-- `logs/types.json` : les types de logs vus, pour enrichir le référentiel.
+- `logs/types.json` : tous les types de logs vus depuis l'installation, avec leur couverture ;
+- `logs/ref-appris.json` : les types classés par l'IA ou un technicien, et les notes de base corrigées.
 
 Ces fichiers contiennent des adresses IP et des identifiants des clients : le `.gitignore` les tient hors du dépôt, et rien n'est envoyé ailleurs. Les logos des extensions sont récupérés une fois sur le site officiel de chaque marque et gardés dans `extensions/` ; ils ne sont pas redistribués avec le code.
 

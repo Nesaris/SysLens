@@ -6,7 +6,7 @@ const cp = require('node:child_process'), dgram = require('node:dgram'), http = 
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
 
 const RACINE = path.join(__dirname, '..');
-const FICHIERS = ['syslens.js', 'console.html', 'package.json', 'nouveautes.json'];
+const FICHIERS = ['syslens.js', 'console.html', 'referentiel.json', 'package.json', 'nouveautes.json'];
 const enfants = [];
 after(() => enfants.forEach(p => { try { p.kill(); } catch (e) {} }));
 
@@ -245,8 +245,39 @@ test('classement : retour à la normale, plafond des types inconnus, DHCP de rou
   await envoyer(s.syslog, [cef('System', 1, 'msg=Port 3 is up! cat=System ZYlevel=alert')]);
   let inc; for (let i = 0; i < 20; i++) { await attendre(100); inc = (await requete(s.web, '/api/incidents')).json.incidents; if (inc.some(x => x.status === 'résolu')) break; }
   const lien = inc.find(x => x.k === 'link-down'); assert.equal(lien.count, 2, '« lan1 dead » rejoint l’incident du port tombé'); assert.equal(lien.status, 'résolu');
-  const inconnu = inc.find(x => x.k === 'non-reference'); assert.equal(inconnu.score, 75); assert.equal(inconnu.level, 'grave');
+  const inconnu = inc.find(x => x.k === 'inconnu'); assert.equal(inconnu.score, 75); assert.equal(inconnu.level, 'grave');
   assert.ok(!inc.some(x => x.level === 'critique'), 'aucune fausse alerte critique');
   const ev = await evenements(s.web); assert.equal(ev.find(e => /Port 3 is up/.test(e.msg)).level, 'benin');
   assert.ok(!inc.some(x => x.k === 'dhcp'));
+});
+
+test('référentiel : types cumulés après redémarrage, classement par l’IA, validation, la proposition ne baisse jamais la note', async () => {
+  const json = { 'content-type': 'application/json' }, dossier = installer();
+  const ligne = cef('Truc Bizarre', 1, 'msg=Le module 7 a fait quelque chose cat=Truc Bizarre ZYlevel=alert');
+  let s = await demarrer({}, dossier);
+  await envoyer(s.syslog, [ligne, cef('User', 5, 'msg=Administrator admin from https has logged in Device cat=User suser=admin spriv=Administrator')]);
+  let ref; for (let i = 0; i < 30; i++) { await attendre(100); ref = (await requete(s.web, '/api/referentiel')).json; if (ref.queue === 1) break; }
+  assert.ok(ref.entries.length > 100, 'référentiel livré'); assert.equal(ref.queue, 1, 'un seul type à qualifier');
+  const t = ref.types.find(x => x.cov === 'qualifier'); assert.equal(t.msg, 'Le module # a fait quelque chose');
+  assert.ok(ref.types.some(x => x.k === 'admin-ok' && x.cov === 'precis'));
+  // Redémarrage : types.json est relu, la file aussi.
+  await attendre(16000); s.proc.kill(); await attendre(300);
+  s = await demarrer({}, dossier);
+  ref = (await requete(s.web, '/api/referentiel')).json; assert.equal(ref.queue, 1, 'types gardés après redémarrage');
+  // Faux Ollama : propose 20 (bénin) pour ce type.
+  let recu = '';
+  const ollama = http.createServer((q, r) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { recu = b; r.writeHead(200, json);
+    r.end(JSON.stringify({ message: { content: '{"types":[{"id":1,"base":20,"sig":"Module bizarre","mean":"Essai.","act":"Rien.","confiance":0.4}]}' } })); }); });
+  await new Promise(r => ollama.listen(0, '127.0.0.1', r)); after(() => ollama.close());
+  const c = await requete(s.web, '/api/ref', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'classify', ai: { prov: 'ollama', mode: 'local', url: 'http://127.0.0.1:' + ollama.address().port, model: 'qwen3:8b' } }) });
+  assert.equal(c.statut, 200, c.texte); assert.equal(c.json.proposed, 1); assert.equal(c.json.left, 0);
+  assert.ok(!/192\.168|admin/.test(JSON.parse(recu).messages[0].content.split('Types :')[1]), 'rien d’identifiant ne part vers l’IA');
+  // Proposition 20 < gravité annoncée (alert, plafonnée à 75) : la note reste 75 tant que ce n’est pas validé.
+  await envoyer(s.syslog, [ligne]); let ev; for (let i = 0; i < 20; i++) { await attendre(100); ev = (await evenements(s.web)).filter(e => /module 7/.test(e.msg)); if (ev.length) break; }
+  assert.equal(ev.pop().score, 75);
+  const v = await requete(s.web, '/api/ref', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'valide', key: t.key }) }); assert.equal(v.statut, 200, v.texte);
+  await envoyer(s.syslog, [ligne]); for (let i = 0; i < 20; i++) { await attendre(100); ev = (await evenements(s.web)).filter(e => /module 7/.test(e.msg)); if (ev.length > 1) break; }
+  const e = ev.pop(); assert.equal(e.score, 20); assert.equal(e.cov, 'appris'); assert.match(e.k, /^appris:/);
+  assert.ok(fs.existsSync(path.join(dossier, 'logs', 'ref-appris.json')));
+  const refus = await requete(s.web, '/api/ref', { methode: 'POST', entetes: { ...json, origin: 'https://exemple.com' }, corps: JSON.stringify({ op: 'oublier', key: t.key }) }); assert.equal(refus.statut, 403);
 });

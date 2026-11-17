@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.5.0",
+    "date": "2026-11-16",
+    "points": [
+      "Référentiel Zyxel complet : 120 entrées (pare-feu ZLD et uOS, switchs, bornes Wi-Fi, Nebula) au lieu de 15, dans referentiel.json. Sur les logs du banc de test, 100 % des lignes sont reconnues par une règle précise.",
+      "Chaque type de log reçu est rangé : règle précise, catégorie connue, type appris, ou « à qualifier ». La page Référentiel montre la couverture et la liste des types à qualifier.",
+      "Les types à qualifier sont classés par l'IA configurée (bouton, puis automatiquement toutes les 10 min tant que la console est ouverte). Seuls des gabarits partent vers l'IA : IP, MAC, comptes, noms de machine et de domaine sont masqués.",
+      "Une proposition de l'IA peut monter la note (grave au plus) mais jamais la baisser ; un technicien la valide, la corrige ou la rejette, ou classe un type à la main. Les notes de base se corrigent aussi depuis la console.",
+      "types.json cumule les types vus depuis l'installation au lieu de repartir de zéro à chaque redémarrage.",
+      "Messages Zyxel contenant « = » (signatures IDP) lus en entier ; syslog des switchs et bornes : la catégorie est reprise du message (« authentication: … »)."
+    ]
+  },
+  {
     "version": "0.4.2",
     "date": "2026-11-16",
     "points": [

@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.7.0",
+    "date": "2026-11-17",
+    "points": [
+      "IA : chaque validation ou correction d'un technicien sert d'exemple. Pour chaque type à noter, l'IA voit les types validés qui lui ressemblent le plus, et les ~30 entrées les plus proches du référentiel avec leur note (le barème du centre).",
+      "Référentiel › Apprentissage de l'IA : décisions, taux d'accord avec les techniciens, vitesse du modèle. Autonomie activable : à 90 % d'accord, l'IA valide seule ses propositions sûres, sans jamais baisser seule sous 30 un log annoncé alert ou pire.",
+      "Classement en continu par une IA locale (Ollama) : le serveur classe les nouveaux types toutes les 2 min, même console fermée.",
+      "Ollama : réponses directes sans phase de réflexion (qwen3…), schéma JSON imposé, longueur bornée, modèle gardé chargé 30 min. Mesuré avec qwen3:8b sur Mac M5 : un lot de 8 types en 35 à 40 s.",
+      "Banc d'essai (SYSLENS_EVAL=1) : sur 85 types, qwen3:8b passe de 31 % à 41 % de notes justes, et l'écart moyen avec la bonne note de 17,7 à 13,6 points, grâce au barème et aux exemples.",
+      "Référentiel : un « Pre-shared key mismatch » de tunnel VPN n'est plus pris pour un échec Wi-Fi, et un « deauth flood » est reconnu comme une attaque Wi-Fi.",
+      "Réception : SysLens prend le plus grand tampon UDP accepté par le système et l'affiche au démarrage. Avant, la demande de 32 Mo échouait sur macOS et on restait au petit tampon par défaut : les rafales passaient moins bien."
+    ]
+  },
+  {
     "version": "0.6.1",
     "date": "2026-11-17",
     "points": [

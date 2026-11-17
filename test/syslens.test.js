@@ -275,7 +275,7 @@ test('référentiel : types cumulés après redémarrage, classement par l’IA,
   await new Promise(r => ollama.listen(0, '127.0.0.1', r)); after(() => ollama.close());
   const c = await requete(s.web, '/api/ref', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'classify', ai: { prov: 'ollama', mode: 'local', url: 'http://127.0.0.1:' + ollama.address().port, model: 'qwen3:8b' } }) });
   assert.equal(c.statut, 200, c.texte); assert.equal(c.json.proposed, 1); assert.equal(c.json.left, 0);
-  assert.ok(!/192\.168|admin/.test(JSON.parse(recu).messages[0].content.split('Types :')[1]), 'rien d’identifiant ne part vers l’IA');
+  const lot = JSON.parse(recu).messages[0].content.split('Types à noter :')[1]; assert.match(lot, /Le module # a fait quelque chose/); assert.ok(!/192\.168|admin/.test(lot), 'rien d’identifiant ne part vers l’IA');
   // Proposition 20 < gravité annoncée (alert, plafonnée à 75) : la note reste 75 tant que ce n’est pas validé.
   await envoyer(s.syslog, [ligne]); let ev; for (let i = 0; i < 20; i++) { await attendre(100); ev = (await evenements(s.web)).filter(e => /module 7/.test(e.msg)); if (ev.length) break; }
   assert.equal(ev.pop().score, 75);
@@ -316,4 +316,35 @@ test('incidents : clos et acquittés gardés par le serveur après redémarrage,
   assert.equal(e['cli-test|sw-01|loop|'].st, 'acquitté'); assert.equal(e.x, undefined);
   r = await post({ key: 'cli-test|fw-01|malware|', st: 'ouvert' }); assert.equal(r.json.etat['cli-test|fw-01|malware|'], undefined);
   e = (await requete(s.web, '/api/incidents')).json; assert.ok(Array.isArray(e.incidents), 'la route /api/incidents répond toujours');
+});
+
+test('apprentissage : décisions gardées, exemples envoyés à l’IA, autonomie avec garde-fou, classement en continu local seulement', async () => {
+  const json = { 'content-type': 'application/json' }, dossier = installer();
+  const r = JSON.parse(fs.readFileSync(path.join(dossier, 'referentiel.json'))); r.entries = []; fs.writeFileSync(path.join(dossier, 'referentiel.json'), JSON.stringify(r));
+  const s = await demarrer({}, dossier), prompts = [];
+  // Faux Ollama : note 50 et confiance 0.9 pour tout, sauf « alerte » noté 10 (doit rester à valider : l'équipement annonce alert).
+  const ollama = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const c = JSON.parse(b), p = c.messages[0].content; prompts.push(c);
+    const items = JSON.parse(p.slice(p.indexOf('[', p.indexOf('Types à noter :')), p.lastIndexOf(']') + 1));
+    rr.writeHead(200, json); rr.end(JSON.stringify({ message: { content: JSON.stringify({ types: items.map(x => ({ id: x.id, base: /alerte/.test(x.message) ? 10 : 50, sig: 'Essai', mean: '', act: '', confiance: 0.9 })) }) }, eval_count: 100, eval_duration: 2e9, total_duration: 3e9 })); }); });
+  await new Promise(ok => ollama.listen(0, '127.0.0.1', ok)); after(() => ollama.close());
+  const ai = { prov: 'ollama', mode: 'local', url: 'http://127.0.0.1:' + ollama.address().port, model: 'essai:8b' };
+  const ref = async () => (await requete(s.web, '/api/referentiel')).json, post = async b => { const x = await requete(s.web, '/api/ref', { methode: 'POST', entetes: json, corps: JSON.stringify(b) }); assert.equal(x.statut, 200, x.texte); return x.json; };
+  await envoyer(s.syslog, Array.from({ length: 12 }, (_, i) => cef('Essai' + i, 5, `msg=Module ${'abcdefghijkl'[i]} en panne cat=Essai${i} ZYlevel=error`)));
+  for (let i = 0; i < 30 && (await ref()).queue < 12; i++) await attendre(100);
+  let c = await post({ op: 'classify', ai, max: 10 }); assert.equal(c.proposed, 10); assert.equal(c.examples, 0); assert.equal(c.call.tps, 50);
+  assert.equal(prompts[0].think, false, 'les modèles qui réfléchissent répondent directement');
+  // Le technicien valide les 10 : 10 accords, l'autonomie devient prête.
+  for (const l of (await ref()).learned) await post({ op: 'valide', key: l.key });
+  let st = (await ref()).learn; assert.equal(st.decisions, 10); assert.equal(st.rate, 1); assert.equal(st.ready, true); assert.equal(st.autoOn, false);
+  await post({ op: 'auto', on: true });
+  await envoyer(s.syslog, [cef('Essai12', 5, 'msg=Module m en panne cat=Essai12 ZYlevel=error'), cef('Essai13', 1, 'msg=Module n en alerte cat=Essai13 ZYlevel=alert')]);
+  for (let i = 0; i < 30 && (await ref()).queue < 4; i++) await attendre(100);
+  c = await post({ op: 'classify', ai, max: 10 }); assert.ok(c.examples >= 10, 'les validations partent comme exemples'); assert.match(prompts[1].messages[0].content, /déjà notés par les techniciens/);
+  const L = (await ref()).learned; assert.ok(L.filter(l => l.auto).length >= 2, 'validés seuls');
+  assert.equal(L.find(l => /alerte/.test(l.msg)).st, 'propose', 'jamais baissé seul sous 30 un log alert');
+  st = (await ref()).learn; assert.ok(st.autoCount >= 2); assert.equal(st.decisions, 10, 'les validations automatiques ne comptent pas dans l’accord');
+  // Classement en continu : IA locale seulement, gardé au redémarrage.
+  const refus = await requete(s.web, '/api/ref', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'ia', ai: { url: 'http://192.168.1.50:11434', model: 'x' } }) }); assert.equal(refus.statut, 400);
+  await post({ op: 'ia', ai: { url: ai.url, model: 'essai:8b' } }); assert.equal((await ref()).learn.ia.model, 'essai:8b');
+  const f = JSON.parse(fs.readFileSync(path.join(dossier, 'logs', 'ref-appris.json'))); assert.equal(f.decisions.length >= 12, true); assert.equal(f.auto.on, true);
 });

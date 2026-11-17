@@ -79,6 +79,18 @@ Chaque type reçu est classé :
 
 Les types à qualifier sont envoyés à l'IA choisie dans la console, par lots de 25, sous forme de gabarits : adresses IP et MAC, comptes, noms de machine et de domaine sont masqués. Tant qu'un technicien ne l'a pas validée, une proposition de l'IA peut monter la note (grave au plus), jamais la baisser.
 
+### Apprentissage
+
+- Chaque validation ou correction d'un technicien est gardée et sert d'exemple à l'IA. Pour chaque type à noter, SysLens lui montre les types déjà validés qui lui ressemblent le plus (mêmes mots dans la catégorie et le message), avec la correction quand le technicien a changé sa note.
+- L'IA reçoit aussi le barème du centre : les ~30 entrées du référentiel les plus proches des types à noter, avec leur note (corrigée s'il y a lieu).
+- **Autonomie** (Référentiel › Apprentissage de l'IA, désactivée par défaut) : quand l'IA est d'accord avec les techniciens au moins 9 fois sur les 10 dernières décisions (10 minimum), elle valide seule ses propositions sûres (confiance ≥ 0,7). Elle ne baisse jamais seule sous 30 un log que l'équipement annonce alert ou pire. Les validations automatiques ne comptent pas dans le taux d'accord.
+- **Classement en continu** : avec une IA locale (Ollama sur ce poste), le serveur classe les nouveaux types toutes les 2 minutes, même console fermée. Une IA en ligne ne peut pas servir ici, puisque sa clé ne quitte pas le navigateur.
+- Avec Ollama, SysLens coupe la phase de réflexion des modèles qui en ont une (qwen3…) impose un schéma JSON, borne la longueur de la réponse et garde le modèle chargé 30 minutes : un lot de 8 types prend environ 35 à 40 s avec qwen3:8b sur un Mac M5 de 16 Go. Prévoir 8 Go de mémoire libre pour un modèle 8B : en dessous, le système passe sur le disque et un lot peut prendre plusieurs minutes.
+
+### Banc d'essai de l'IA
+
+`SYSLENS_EVAL=1` lance SysLens en mode banc d'essai : le référentiel ne note plus rien (tout passe « à qualifier »), il sert seulement de barème à l'IA, sans jamais lui montrer la règle qui décrit le log testé. On compare ensuite les notes de l'IA à celles du référentiel. À ne pas utiliser en production.
+
 ## Données
 
 Tout reste sur la machine :
@@ -94,7 +106,9 @@ Ces fichiers contiennent des adresses IP et des identifiants des clients : le `.
 
 ## Capacité
 
-Mesuré sur une machine à 2 cœurs (qui envoyait aussi les logs) : **30 000 logs/s sans perte avec un seul processus**, en UDP, brut compressé compris. Un pare-feu Zyxel exposé à Internet envoie environ 1,3 log/s : un processus suit donc plus de 10 000 pare-feu. Au-delà, `WORKERS` ajoute des processus de réception, un par cœur libre.
+Mesuré sur une machine à 2 cœurs (qui envoyait aussi les logs) : **35 000 logs/s par processus** en UDP, brut compressé compris, sans perte jusqu'à 23 000 logs/s envoyés en rafales. Un pare-feu Zyxel exposé à Internet envoie environ 1,3 log/s : un processus suit donc plus de 10 000 pare-feu. Au-delà, `WORKERS` ajoute des processus de réception, un par cœur libre.
+
+Les rafales sont absorbées par le tampon de réception UDP : SysLens prend le plus grand que le système accepte et l'affiche au démarrage (`Tampon UDP : 8.0 Mo`). Sous 4 Mo, des logs peuvent se perdre en rafale. Pour l'agrandir : sur Linux `sudo sysctl -w net.core.rmem_max=33554432` ; sur macOS `sudo sysctl -w kern.ipc.maxsockbuf=33554432`.
 
 - Seuls les événements utiles remontent au processus principal (incidents, console, IA) ; les bénins sont comptés, archivés et échantillonnés pour le flux de la console.
 - Les incidents sont regroupés côté serveur (`/api/incidents`), par type, équipement et source.

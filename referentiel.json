@@ -282,6 +282,16 @@
    "cat": "^adp|anomaly"
   },
   {
+   "k": "wifi-attack",
+   "fam": "Borne",
+   "base": 60,
+   "sig": "Attaque Wi-Fi détectée",
+   "mean": "Rafale de déauthentifications ou faux point d’accès usurpant le réseau.",
+   "act": "Localiser l’émetteur ; prévenir les utilisateurs de ne pas se connecter au faux réseau.",
+   "src": "Guides bornes NWA / WAX et contrôleur Wi-Fi",
+   "re": "(deauth|disassoc)[^,]*(flood|attack|storm)|evil twin|spoof(ed)? (ap|bssid|ssid)"
+  },
+  {
    "k": "dos",
    "fam": "Toutes",
    "base": 50,
@@ -313,16 +323,6 @@
    "telemetry": true
   },
   {
-   "k": "wifi-attack",
-   "fam": "Borne",
-   "base": 60,
-   "sig": "Attaque Wi-Fi détectée",
-   "mean": "Rafale de déauthentifications ou faux point d’accès usurpant le réseau.",
-   "act": "Localiser l’émetteur ; prévenir les utilisateurs de ne pas se connecter au faux réseau.",
-   "src": "Guides bornes NWA / WAX et contrôleur Wi-Fi",
-   "re": "(deauth|disassoc)[^,]*(flood|attack|storm)|evil twin|spoof(ed)? (ap|bssid|ssid)"
-  },
-  {
    "k": "rogue",
    "fam": "Borne",
    "base": 60,
@@ -331,17 +331,6 @@
    "act": "Le localiser, vérifier qu’il n’usurpe pas un SSID de l’entreprise.",
    "src": "Guides bornes NWA / WAX et contrôleur Wi-Fi",
    "re": "rogue|unauthori[sz]ed (ap|access point)|fake ap|containment"
-  },
-  {
-   "k": "wifi-auth-ko",
-   "fam": "Borne",
-   "base": 15,
-   "sig": "Échec d’authentification Wi-Fi",
-   "mean": "Un appareil n’a pas réussi à s’authentifier (mauvaise clé, 802.1X refusé).",
-   "act": "En rafale : clé changée, poste mal configuré ou attaque.",
-   "src": "Guides bornes NWA / WAX et contrôleur Wi-Fi",
-   "re": "(wpa\\d?|802\\.1x|eap|psk|4-way|handshake|pre-?shared)[^,]*(fail|timeout|reject|mismatch|invalid|wrong)|(fail|timeout|reject)[^,]*(4-way|handshake|eap|802\\.1x|wpa)",
-   "brute": 20
   },
   {
    "k": "vpn-auth-ko",
@@ -365,6 +354,28 @@
    "cat": "ssl ?vpn|l2tp|secuextender|remote access|xauth",
    "re": "fail|denied|reject|incorrect|invalid",
    "brute": 10
+  },
+  {
+   "k": "vpn-nego",
+   "fam": "Pare-feu",
+   "base": 52,
+   "sig": "Négociation VPN refusée",
+   "mean": "Le tunnel ne se monte pas : paramètres, clé partagée ou certificat différents des deux côtés.",
+   "act": "Comparer les paramètres IKE (version, propositions, clé, identifiants) des deux extrémités.",
+   "src": "Guides ZLD (USG FLEX, ATP, USG), Log Descriptions",
+   "cat": "ike|ipsec|vpn|l2tp|xauth|secuextender|tunnel",
+   "re": "no proposal|proposal[^,]*(mismatch|not|reject)|pre-?shared|psk mismatch|auth(entication)? (fail|mismatch)|invalid (id|spi|cookie|payload)|id mismatch|negotiat[^,]*fail|phase ?[12][^,]*(fail|timeout)|certificate[^,]*(fail|invalid|expired)|mismatch"
+  },
+  {
+   "k": "wifi-auth-ko",
+   "fam": "Borne",
+   "base": 15,
+   "sig": "Échec d’authentification Wi-Fi",
+   "mean": "Un appareil n’a pas réussi à s’authentifier (mauvaise clé, 802.1X refusé).",
+   "act": "En rafale : clé changée, poste mal configuré ou attaque.",
+   "src": "Guides bornes NWA / WAX et contrôleur Wi-Fi",
+   "re": "(wpa\\d?|802\\.1x|eap|psk|4-way|handshake|pre-?shared)[^,]*(fail|timeout|reject|mismatch|invalid|wrong)|(fail|timeout|reject)[^,]*(4-way|handshake|eap|802\\.1x|wpa)",
+   "brute": 20
   },
   {
    "k": "user-ko",
@@ -482,17 +493,6 @@
     "vpn-down",
     "vpn-nego"
    ]
-  },
-  {
-   "k": "vpn-nego",
-   "fam": "Pare-feu",
-   "base": 52,
-   "sig": "Négociation VPN refusée",
-   "mean": "Le tunnel ne se monte pas : paramètres, clé partagée ou certificat différents des deux côtés.",
-   "act": "Comparer les paramètres IKE (version, propositions, clé, identifiants) des deux extrémités.",
-   "src": "Guides ZLD (USG FLEX, ATP, USG), Log Descriptions",
-   "cat": "ike|ipsec|vpn|l2tp|xauth|secuextender|tunnel",
-   "re": "no proposal|proposal[^,]*(mismatch|not|reject)|pre-?shared|psk mismatch|auth(entication)? (fail|mismatch)|invalid (id|spi|cookie|payload)|id mismatch|negotiat[^,]*fail|phase ?[12][^,]*(fail|timeout)|certificate[^,]*(fail|invalid|expired)|mismatch"
   },
   {
    "k": "vpn-down",

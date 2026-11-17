@@ -30,8 +30,8 @@ function incApi(b) {
   try { fs.writeFileSync(INC_FILE + '.tmp', JSON.stringify(incEtat)); fs.renameSync(INC_FILE + '.tmp', INC_FILE); } catch (e) { throw new Error('Écriture impossible : ' + e.message); }
   return { ok: true, etat: incEtat };
 }
-const LEARN_FILE = path.join(DIR, 'ref-appris.json'); let learned = { types: {}, bases: {} };
-function loadLearned() { try { const j = JSON.parse(fs.readFileSync(LEARN_FILE, 'utf8')); learned = { types: j.types || {}, bases: j.bases || {} }; } catch (e) {} }
+const LEARN_FILE = path.join(DIR, 'ref-appris.json'); let learned = { types: {}, bases: {}, decisions: [], auto: { on: false }, ia: null };
+function loadLearned() { try { const j = JSON.parse(fs.readFileSync(LEARN_FILE, 'utf8')); learned = { types: j.types || {}, bases: j.bases || {}, decisions: Array.isArray(j.decisions) ? j.decisions : [], auto: j.auto || { on: false }, ia: j.ia || null }; } catch (e) {} }
 loadLearned();
 // Gabarit d'un message : les valeurs qui changent d'un log à l'autre sont remplacées, pour regrouper les logs d'un même type
 // (et pour que ce qui part vers une IA ne contienne ni adresse, ni compte, ni nom de machine).
@@ -83,10 +83,14 @@ function matchRef(ev, txt) { const out = isPublic(ev.dst) && !isPublic(ev.src), 
   return REF.find(r => (!r.cat || r.cat.test(ev.cat)) && (!r.re || r.re.test(txt)) && (!r.priv || r.priv.test(priv)) && (!r.when || (r.when === 'outbound' ? out : inb))); }
 // Couverture d'un type : precis (règle du référentiel), appris (classé puis validé), categorie (catégorie connue, message pas encore détaillé),
 // propose (l'IA a proposé une note, en attente), qualifier (inconnu, ou catégorie seule avec une gravité error ou plus).
+// SYSLENS_EVAL=1 : banc d'essai de l'IA. Le référentiel ne note plus rien (tout passe « à qualifier ») mais sert de repère à l'IA,
+// sans jamais lui montrer la règle qui correspond au log testé.
+const EVAL = process.env.SYSLENS_EVAL === '1';
+const refTxt = ev => (ev.fmt === 'syslog' && ev.cat ? ev.cat + ': ' : '') + ev.msg + ' ' + ev.name + ' ' + (ev.f.note || '') + ' ' + (ev.f.ZYnote || '');   // syslog simple : la catégorie est un mot du message
 function score(ev, ctx = true) {
-  const txt = (ev.fmt === 'syslog' && ev.cat ? ev.cat + ': ' : '') + ev.msg + ' ' + ev.name + ' ' + (ev.f.note || '') + ' ' + (ev.f.ZYnote || '');   // syslog simple : la catégorie est un mot du message
+  const txt = refTxt(ev);
   const tk0 = catT(ev.cat) + ' | ' + tpl(ev.msg || ev.name, ev), L = learned.types[tk0], parts = [];
-  const r = L && L.st === 'valide' ? { k: 'appris:' + shortHash(tk0), base: L.base, floor: L.floor || 0, telemetry: L.base < 30, learned: true } : matchRef(ev, txt);
+  const r = L && L.st === 'valide' ? { k: 'appris:' + shortHash(tk0), base: L.base, floor: L.floor || 0, telemetry: L.base < 30, learned: true } : EVAL ? null : matchRef(ev, txt);
   ev.k = r ? r.k : 'inconnu'; ev.ref = !!(r && !r.telemetry && !r.generic); ev.rec = !!(r && r.recovers);
   ev.tk = r && !r.generic && !r.learned ? catT(ev.cat) + ' | [' + r.k + ']' : tk0;
   ev.cov = !r ? 'qualifier' : r.learned ? 'appris' : r.generic ? (ev.sev <= 3 ? 'qualifier' : 'categorie') : 'precis';
@@ -147,10 +151,14 @@ function stage1(line, from) {
 const cntDelta = new Map();
 function emit(ev, sample) { if (cluster.isWorker) outBuf.push([ev, sample]); else stage2(ev, sample); }
 function statsPayload() { const p = { n: rxCount, devs: [...devDelta.values()], types: [...typeDelta.values()], counts: [...cntDelta.values()] }; rxCount = 0; devDelta.clear(); typeDelta.clear(); cntDelta.clear(); return p; }
+let udpBuf = 0;
 function startReceivers(h) {
   const udp = dgram.createSocket('udp4');
   udp.on('message', (b, ri) => allowed(ri.address) ? h(b.toString('utf8'), ri.address) : drop(ri.address));
-  udp.on('listening', () => { try { udp.setRecvBufferSize(32 << 20); } catch (e) {} });
+  // Tampon de réception UDP le plus grand que le système accepte : c'est lui qui absorbe les rafales (macOS plafonne vers 8 Mo,
+  // Linux à net.core.rmem_max). Sans ça, on reste au tampon par défaut (≈ 200 Ko à 800 Ko) et les rafales sont perdues.
+  udp.on('listening', () => { for (const mo of [32, 16, 8, 7, 6, 4, 2, 1]) { try { udp.setRecvBufferSize(mo << 20); break; } catch (e) {} }
+    if (!cluster.isWorker || cluster.worker.id === 1) try { udpBuf = udp.getRecvBufferSize(); console.log(`Tampon UDP : ${(udpBuf / 1048576).toFixed(1)} Mo${udpBuf < 4 << 20 ? ' (petit : rafales perdues possibles, voir README › Capacité)' : ''}`); } catch (e) {} });
   udp.on('error', e => { console.error(`UDP ${PORT} : ${e.code}. ${e.code === 'EACCES' ? 'Relance avec sudo.' : e.code === 'EADDRINUSE' ? 'Le port est déjà pris par un autre service syslog.' : ''}`); process.exit(1); });
   const tcp = net.createServer(sk => { const ra = String(sk.remoteAddress).replace('::ffff:', ''); if (!allowed(ra)) { drop(ra); return sk.destroy(); }
     let buf = ''; sk.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { h(buf.slice(0, i), ra); buf = buf.slice(i + 1); } if (buf.length > 1 << 20) buf = ''; }); sk.on('error', () => {}); })
@@ -381,7 +389,8 @@ async function aiApi(q) {
 // --- IA : question ponctuelle au modèle configuré dans la console (clé envoyée par la console à chaque appel, jamais écrite sur disque)
 const AI_CHAT = { chatgpt: 'https://api.openai.com/v1/chat/completions', mistral: 'https://api.mistral.ai/v1/chat/completions', grok: 'https://api.x.ai/v1/chat/completions', hermes: 'https://inference-api.nousresearch.com/v1/chat/completions' };
 const SUB_TOOL = { chatgpt: 'codex', claude: 'claudecode', gemini: 'geminicli' };
-async function aiAsk(c, prompt) {
+const aiStats = { last: null };
+async function aiAsk(c, prompt, schema, maxTok = 4000) {
   const ms = Math.max(30, Math.min(600, +c.timeout || 180)) * 1000, signal = AbortSignal.timeout(ms), model = String(c.model || '').trim();
   const post = async (url, headers, body) => { const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal }).catch(e => { throw new Error(e.name === 'TimeoutError' ? 'Le modèle n’a pas répondu à temps.' : 'Le fournisseur ne répond pas.'); });
     const j = await r.json().catch(() => ({})); if (r.status === 401 || r.status === 403) throw new Error('Clé refusée par le fournisseur.'); if (!r.ok) throw new Error('Le fournisseur a répondu ' + r.status + (j.error && j.error.message ? ' : ' + String(j.error.message).slice(0, 200) : '') + '.'); return j; };
@@ -395,7 +404,11 @@ async function aiAsk(c, prompt) {
       p.stdin.end(prompt); }); }
   if (!model) throw new Error('Aucun modèle choisi.');
   if (c.mode === 'local' || c.prov === 'ollama') { let u; try { u = new URL('/api/chat', String(c.url || '')); } catch (e) { throw new Error('Adresse Ollama invalide.'); }
-    const j = await post(u, {}, { model, stream: false, format: 'json', options: { temperature: 0.1 }, messages: [{ role: 'user', content: prompt }] }); return (j.message && j.message.content) || ''; }
+    // think: false : les modèles « qui réfléchissent » (qwen3…) répondent directement, 5 à 10 fois plus vite ; le modèle reste chargé 30 min entre deux lots.
+    // Schéma JSON imposé et longueur bornée : en simple mode « json », un modèle peut écrire des blancs sans fin jusqu'à remplir son contexte.
+    const j = await post(u, {}, { model, stream: false, think: false, keep_alive: '30m', format: schema || 'json', options: { temperature: 0.1, num_ctx: 8192, num_predict: maxTok }, messages: [{ role: 'user', content: prompt }] });
+    if (j.eval_count && j.eval_duration) aiStats.last = { tokens: j.eval_count, tps: Math.round(j.eval_count / (j.eval_duration / 1e9)), ms: Math.round((j.total_duration || 0) / 1e6) };
+    return (j.message && j.message.content) || ''; }
   const key = String(c.key || '').trim(); if (key.length < 20 || /\s/.test(key)) throw new Error('Clé API absente : saisissez-la de nouveau dans Paramètres › Intelligence artificielle.');
   if (AI_CHAT[c.prov]) { const j = await post(AI_CHAT[c.prov], { authorization: 'Bearer ' + key }, { model, messages: [{ role: 'user', content: prompt }] }); return ((j.choices || [])[0] || {}).message?.content || ''; }
   if (c.prov === 'claude') { const j = await post('https://api.anthropic.com/v1/messages', { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }); return (j.content || []).map(x => x.text || '').join(''); }
@@ -408,9 +421,36 @@ function saveLearned() { const tmp = LEARN_FILE + '.part'; fs.writeFileSync(tmp,
   for (const ty of types.values()) { const L = learned.types[ty.key]; if (L && L.st === 'valide') ty.cov = 'appris'; else if (L && L.st === 'propose' && ty.cov === 'qualifier') ty.cov = 'propose'; else if (!L && (ty.cov === 'propose' || ty.cov === 'appris')) ty.cov = 'qualifier'; } typesDirty = true; }
 const queue = () => [...types.values()].filter(t => t.cov === 'qualifier' && !learned.types[t.key]).sort((a, b) => b.count - a.count);
 let classifying = null;
-async function classify(c, max) {
+// Apprentissage : chaque validation ou correction d'un technicien est gardée (decisions) et sert d'exemple aux lots suivants.
+// Autonomie (option) : quand l'IA est d'accord avec les techniciens au moins AUTO_RATE fois sur AUTO_WIN décisions récentes,
+// ses propositions sûres d'elles sont validées seules. Jamais pour baisser sous 30 un log que l'équipement annonce alert ou pire.
+const AUTO_WIN = 20, AUTO_MIN = 10, AUTO_RATE = 0.9, AUTO_CONF = 0.7, LEVEL = b => b >= 85 ? 3 : b >= 60 ? 2 : b >= 30 ? 1 : 0;
+const agree = d => Math.abs(d.prop - d.final) <= 10 && LEVEL(d.prop) === LEVEL(d.final);
+function learnStats() { const d = learned.decisions.filter(x => !x.auto), rec = d.slice(-AUTO_WIN), ok = rec.filter(agree).length;
+  return { decisions: d.length, recent: rec.length, agree: ok, rate: rec.length ? ok / rec.length : 0, ready: rec.length >= AUTO_MIN && ok / rec.length >= AUTO_RATE,
+    autoOn: !!(learned.auto && learned.auto.on), autoCount: learned.decisions.filter(x => x.auto).length, ia: learned.ia, lastCall: aiStats.last }; }
+// Exemples choisis par ressemblance : pour chaque type à noter, les types validés qui partagent le plus de mots
+// (catégorie + message), puis les plus récents pour compléter. Un modèle de 8 milliards de paramètres apprend surtout par analogie.
+const STOP = new Set('the and for from with has have been was are not this that has to of in on by is at as an or de la le les des du un une et en est pour par sur au'.split(' '));
+const words = t => new Set(String((t.cat || '') + ' ' + (t.msg || '')).toLowerCase().replace(/<\w+>|#/g, ' ').split(/[^a-z0-9àâçéèêëîïôûùüÿ]+/).filter(w => w.length > 2 && !STOP.has(w)));
+function examples(list, n = 12) {
+  const val = Object.entries(learned.types).filter(([, v]) => v.st === 'valide' && v.msg).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 1500).map(e => [e, words(e[1])]), pick = [];
+  for (const t of list) { const w = words(t), scored = [];
+    for (const [e, ew] of val) { let k = 0; for (const x of w) if (ew.has(x)) k++; if (k) scored.push([k / Math.sqrt(ew.size * w.size || 1) + (e[1].cat === t.cat ? 0.5 : 0), e]); }
+    scored.sort((a, b) => b[0] - a[0]); for (const [, e] of scored.slice(0, 2)) if (!pick.includes(e) && pick.length < n) pick.push(e); }
+  for (const [e] of val) if (pick.length < n && !pick.includes(e)) pick.push(e);
+  return pick.map(([, v]) => ({ categorie: v.cat || '', message: v.msg, base: v.base, sig: v.sig, ...(v.prop != null && Math.abs(v.prop - v.base) > 10 ? { note: `l’IA avait proposé ${v.prop}, le technicien a corrigé` } : {}) })); }
+async function classify(c, max, opts = {}) {
   const list = queue().slice(0, Math.max(1, Math.min(40, +max || 25))); if (!list.length) return { proposed: 0, left: 0 };
   const items = list.map((t, i) => ({ id: i + 1, categorie: t.cat || '', message: t.msg || '', gravite_equipement: t.sev, equipement: famOfProduct(t.fam), vu: t.count }));
+  const ex = opts.exemples === false ? [] : examples(list);
+  // Repères : le barème du centre (référentiel livré, notes corrigées comprises), sauf la règle qui décrirait déjà un type du lot.
+  const cache = new Set(); if (opts.reperes !== false) for (const t of list) try { const ev = parse(t.example || '', '127.0.0.1'); const r = ev && matchRef(ev, refTxt(ev)); if (r) cache.add(r.k); } catch (e) {}
+  // Les ~30 repères les plus proches des types du lot (mots de leur catégorie et de leur motif), pour garder une consigne courte.
+  const lw = new Set(list.flatMap(t => [...words(t)])), anc = REF_RAW.filter(e => e.base != null && !e.generic && !e.k.startsWith('cat-') && !cache.has(e.k))
+    .map(e => { const w = String((e.cat || '') + ' ' + (e.re || '')).toLowerCase().split(/[^a-z0-9]+/).filter(x => x.length > 2); let k = 0; for (const x of new Set(w)) if (lw.has(x)) k++; return [k, e]; })
+    .sort((x, y) => y[0] - x[0]);
+  const rep = opts.reperes === false ? [] : anc.slice(0, 30).map(([, e]) => `${e.sig} (${e.fam}) : ${learned.bases[e.k] ?? e.base}`);
   const prompt = `Tu aides un centre de supervision qui surveille des équipements Zyxel (pare-feu ZLD et uOS, switchs, bornes Wi-Fi) chez des clients.
 Pour chaque type de log ci-dessous, propose une note de gravité de base de 0 à 100 :
 - 85 à 100, critique : action immédiate (malware actif, administrateur connecté depuis Internet, panne totale du site)
@@ -420,33 +460,51 @@ Pour chaque type de log ci-dessous, propose une note de gravité de base de 0 à
 Les valeurs variables ont été remplacées : <ip>, <mac>, <user>, <host>, <nom>, <mail>, # pour les nombres.
 Réponds uniquement par un objet JSON, sans texte autour :
 {"types":[{"id":1,"base":0,"sig":"nom court en français (60 caractères au plus)","mean":"ce que ce log veut dire, une phrase","act":"ce que le technicien doit faire, une phrase","confiance":0.0}]}
-Si tu ne connais pas ce message, mets une confiance inférieure à 0.5 et une note prudente.
-Types :
+Si tu ne connais pas ce message, mets une confiance inférieure à 0.5 et une note prudente.${rep.length ? `
+Barème du centre : types déjà connus et la note qu’on leur donne. Note les nouveaux types de façon cohérente avec ce barème.
+${rep.join('\n')}` : ''}${ex.length ? `
+Voici des types déjà notés par les techniciens de ce centre. Ils font foi : aligne tes notes sur leur façon de juger (même catégorie ou même nature de message → note proche).
+${JSON.stringify(ex, null, 1)}` : ''}
+Types à noter :
 ${JSON.stringify(items, null, 1)}`;
-  const out = await aiAsk(c, prompt), a = out.indexOf('{'), b = out.lastIndexOf('}'); let j;
+  const SCHEMA = { type: 'object', required: ['types'], properties: { types: { type: 'array', items: { type: 'object', required: ['id', 'base', 'sig', 'mean', 'act', 'confiance'],
+    properties: { id: { type: 'integer' }, base: { type: 'integer' }, sig: { type: 'string' }, mean: { type: 'string' }, act: { type: 'string' }, confiance: { type: 'number' } } } } } };
+  const out = await aiAsk(c, prompt, SCHEMA, 250 * list.length + 300), a = out.indexOf('{'), b = out.lastIndexOf('}'); let j;
   try { j = JSON.parse(out.slice(a, b + 1)); } catch (e) { throw new Error('Réponse de l’IA illisible (pas de JSON).'); }
   const src = 'IA ' + String(c.prov || '') + (c.model ? ' ' + String(c.model).slice(0, 60) : '') + ', ' + new Date().toISOString().slice(0, 10); let n = 0;
-  for (const x of Array.isArray(j.types) ? j.types : []) { const t = list[(+x.id || 0) - 1]; if (!t || !Number.isFinite(+x.base)) continue;
-    learned.types[t.key] = { st: 'propose', base: Math.round(Math.max(0, Math.min(100, +x.base))), sig: String(x.sig || t.msg).slice(0, 80), mean: String(x.mean || '').slice(0, 300), act: String(x.act || '').slice(0, 300),
-      conf: Math.max(0, Math.min(1, +x.confiance || 0)), src, at: Date.now(), cat: t.cat, msg: t.msg, sev: t.sev }; n++; }
-  if (n) saveLearned(); console.log(`\x1b[36mIA : ${n} type(s) de log classé(s), à valider dans la console (Référentiel)\x1b[0m`);
-  return { proposed: n, left: queue().length }; }
+  const st = learnStats(), auto = st.autoOn && st.ready; let na = 0;
+  for (const x of Array.isArray(j.types) ? j.types : []) { const t = list[(+x.id || 0) - 1]; if (!t || !Number.isFinite(+x.base) || learned.types[t.key]) continue;
+    const base = Math.round(Math.max(0, Math.min(100, +x.base))), conf = Math.max(0, Math.min(1, +x.confiance || 0));
+    const sure = auto && conf >= AUTO_CONF && !(base < 30 && /^(alert|crit|emerg)/i.test(t.sev || ''));
+    learned.types[t.key] = { st: sure ? 'valide' : 'propose', base, prop: base, sig: String(x.sig || t.msg).slice(0, 80), mean: String(x.mean || '').slice(0, 300), act: String(x.act || '').slice(0, 300),
+      conf, src: sure ? src + ', validé seul (autonomie)' : src, auto: sure || undefined, at: Date.now(), cat: t.cat, msg: t.msg, sev: t.sev };
+    if (sure) { learned.decisions.push({ key: t.key, prop: base, final: base, auto: true, at: Date.now() }); na++; } n++; }
+  if (learned.decisions.length > 2000) learned.decisions = learned.decisions.slice(-2000);
+  if (n) saveLearned(); console.log(`\x1b[36mIA : ${n} type(s) de log classé(s)${na ? `, dont ${na} validé(s) seul(s)` : ''}${ex.length ? ` (${ex.length} exemples appris)` : ''}\x1b[0m`);
+  return { proposed: n, auto: na, examples: ex.length, left: queue().length, call: aiStats.last }; }
+// Classement en continu côté serveur, sans console ouverte : seulement une IA locale (Ollama), donc sans clé à garder.
+setInterval(() => { if (learned.ia && !classifying && queue().length) { classifying = classify(learned.ia, 12).catch(e => console.log('IA : ' + e.message)).finally(() => { classifying = null; }); } }, 120e3).unref();
 async function refApi(q) {
   const num = v => v === null || v === '' || v === undefined ? null : Math.round(Math.max(0, Math.min(100, +v)));
-  if (q.op === 'classify') { if (classifying) throw new Error('Un classement est déjà en cours.'); classifying = classify(q.ai || {}, q.max).finally(() => { classifying = null; }); return classifying; }
+  if (q.op === 'classify') { if (classifying) throw new Error('Un classement est déjà en cours.'); classifying = classify(q.ai || {}, q.max, { exemples: q.exemples, reperes: q.reperes }).finally(() => { classifying = null; }); return classifying; }
+  if (q.op === 'auto') { learned.auto = { on: !!q.on }; saveLearned(); return { ok: true, stats: learnStats() }; }
+  if (q.op === 'ia') { if (!q.ai) { learned.ia = null; saveLearned(); return { ok: true }; }
+    const a = q.ai, u = new URL(String(a.url || 'http://127.0.0.1:11434')); if (!/^https?:$/.test(u.protocol) || !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) throw new Error('Classement en continu : IA locale (Ollama sur ce poste) seulement.');
+    if (!/^[\w.:/-]{1,80}$/.test(String(a.model || ''))) throw new Error('Modèle invalide.'); learned.ia = { prov: 'ollama', mode: 'local', url: u.origin, model: String(a.model) }; saveLearned(); return { ok: true }; }
   if (q.op === 'base') { const k = String(q.k || ''); if (!REF.some(r => r.k === k)) throw new Error('Entrée inconnue.'); const b = num(q.base); if (b === null) delete learned.bases[k]; else learned.bases[k] = b; saveLearned(); return { ok: true }; }
   const key = String(q.key || ''), t = types.get(key), L = learned.types[key]; if (!t && !L) throw new Error('Type inconnu.');
   if (q.op === 'valide' || q.op === 'manuel') { const b = num(q.base != null ? q.base : L && L.base); if (b === null || !Number.isFinite(b)) throw new Error('Note invalide.');
+    if (L && L.st === 'propose' && Number.isFinite(L.base)) learned.decisions.push({ key, prop: L.base, final: b, at: Date.now() });
     learned.types[key] = { ...(L || {}), st: 'valide', base: b, sig: String(q.sig || (L && L.sig) || (t && t.msg) || key).slice(0, 80), mean: String(q.mean || (L && L.mean) || '').slice(0, 300), act: String(q.act || (L && L.act) || '').slice(0, 300),
       src: q.op === 'manuel' ? 'Classé par un technicien, ' + new Date().toISOString().slice(0, 10) : ((L && L.src) || 'IA') + ', validé', at: Date.now(), cat: (t && t.cat) || (L && L.cat), msg: (t && t.msg) || (L && L.msg) };
     saveLearned(); return { ok: true }; }
-  if (q.op === 'rejet') { if (L) { L.st = 'rejete'; L.at = Date.now(); saveLearned(); } return { ok: true }; }
+  if (q.op === 'rejet') { if (L) { if (L.st === 'propose') learned.decisions.push({ key, prop: L.base, final: -100, at: Date.now() }); L.st = 'rejete'; L.at = Date.now(); saveLearned(); } return { ok: true }; }
   if (q.op === 'oublier') { delete learned.types[key]; saveLearned(); return { ok: true }; }
   throw new Error('Opération inconnue.'); }
 function refPayload() { const tys = [...types.values()].sort((a, b) => b.count - a.count), cov = {};
   for (const t of tys) cov[t.cov] = (cov[t.cov] || 0) + t.count;
   return { entries: REF_RAW, bases: learned.bases, learned: Object.entries(learned.types).map(([key, v]) => ({ key, k: 'appris:' + shortHash(key), ...v })),
-    types: tys.slice(0, 3000), coverage: cov, queue: queue().length, classifying: !!classifying }; }
+    types: tys.slice(0, 3000), coverage: cov, queue: queue().length, classifying: !!classifying, learn: learnStats() }; }
 const sameOrigin = q => { const o = q.headers.origin; return (!o || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o)) && /application\/json/.test(q.headers['content-type'] || ''); };
 const webSrv = http.createServer((q, r) => {
   if (q.url === '/api/version') { let news = []; try { news = JSON.parse(fs.readFileSync(path.join(__dirname, 'nouveautes.json'), 'utf8')).slice(0, 5); } catch (e) {} r.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify({ ...upd, news })); }

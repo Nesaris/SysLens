@@ -384,7 +384,7 @@ table.treat tr.exp>td{background:var(--panel2);border-radius:0 0 10px 10px}table
 <div class="veil" id="veil"></div>
 <aside class="drawer" id="drawer" aria-label="Détail de l'incident"></aside>
 <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle"></div>
-<button id="chatBtn" type="button" aria-controls="chat" aria-label="Assistant IA" title="Assistant IA"><svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M5 8.5A4.5 4.5 0 0 1 9.5 4h12A4.5 4.5 0 0 1 26 8.5v8A4.5 4.5 0 0 1 21.5 21H13l-5.5 4.5V21A4.5 4.5 0 0 1 5 16.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><text x="15.5" y="16.3" text-anchor="middle" font-family="Geist, system-ui, sans-serif" font-size="8.5" font-weight="700" fill="currentColor">AI</text><path d="M28 1.5c.4 2.3 1.2 3.1 3.5 3.5-2.3.4-3.1 1.2-3.5 3.5-.4-2.3-1.2-3.1-3.5-3.5 2.3-.4 3.1-1.2 3.5-3.5z" fill="currentColor"/></svg></button>
+<button id="chatBtn" type="button" aria-controls="chat" aria-label="Assistant IA" title="Assistant IA"><svg width="34" height="34" viewBox="1.2 -3.5 34 34" aria-hidden="true"><path d="M5 8.5A4.5 4.5 0 0 1 9.5 4h12A4.5 4.5 0 0 1 26 8.5v8A4.5 4.5 0 0 1 21.5 21H13l-5.5 4.5V21A4.5 4.5 0 0 1 5 16.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><text x="15.5" y="16.3" text-anchor="middle" font-family="Geist, system-ui, sans-serif" font-size="8.5" font-weight="700" fill="currentColor">AI</text><path d="M28 1.5c.4 2.3 1.2 3.1 3.5 3.5-2.3.4-3.1 1.2-3.5 3.5-.4-2.3-1.2-3.1-3.5-3.5 2.3-.4 3.1-1.2 3.5-3.5z" fill="currentColor"/></svg></button>
 <aside class="chat" id="chat" aria-label="Assistant"></aside>
 <script>
 {
@@ -610,7 +610,7 @@ function nav() {
     : id === 'devices' && silent ? `<em class="b-warn" title="${silent} silencieux">${silent}</em>` : id === 'catalog' && prop ? `<em class="b-n" title="${prop} à valider">${prop}</em>` : id === 'extensions' && todo ? `<em class="b-warn" title="${todo} à configurer">${todo}</em>` : '';
   $('#nav').innerHTML = GROUPS.map(([g, items]) => `<div class="grp"><p>${g}</p>${items.map(([id,n]) => `<a href="#${id}" class="${route() === id ? 'on' : ''}" title="${n}"${route() === id ? ' aria-current="page"' : ''}><svg><use href="#i-${id}"/></svg><span>${n}</span>${badge(id)}</a>`).join('')}</div>`).join('');
   const od = EXT.find(x => x.id === 'odoo'), mins = Math.max(1, Math.round((Date.now() - od.lastSync) / 60e3));
-  $('#health').innerHTML = `<div style="--c:${silent ? 'var(--grav)' : 'var(--acc)'}"><i></i>Collecte<b>${devs.length - silent}/${devs.length}</b></div><div style="--c:var(--acc)"><i></i>${aiCloud() ? 'IA cloud' : 'IA locale'}<b>${esc(ai.model.split(':')[0])}</b></div><div style="--c:${od.st === 'on' ? 'var(--acc)' : 'var(--grav)'}"><i></i>Odoo<b>${od.st === 'on' ? 'sync ' + mins + ' min' : 'à configurer'}</b></div>`;
+  $('#health').innerHTML = `<div style="--c:${silent ? 'var(--grav)' : 'var(--acc)'}"><i></i>Collecte<b>${devs.length - silent}/${devs.length}</b></div>${LIVEMODE && !ai.saved ? '<div style="--c:var(--grav)"><i></i>IA<b>à configurer</b></div>' : `<div style="--c:var(--acc)"><i></i>${aiCloud() ? 'IA cloud' : 'IA locale'}<b>${esc(ai.model.replace(/:latest$/, ''))}</b></div>`}${LIVEMODE ? '<div style="--c:var(--mute)"><i></i>Odoo<b>non branché</b></div>' : `<div style="--c:${od.st === 'on' ? 'var(--acc)' : 'var(--grav)'}"><i></i>Odoo<b>${od.st === 'on' ? 'sync ' + mins + ' min' : 'à configurer'}</b></div>`}`;
   $('#bellN').textContent = crit || ''; $('#bellN').hidden = !crit;
   $('#livePill').className = 'pill' + (paused ? ' off' : ''); $('#livePill').textContent = paused ? 'flux en pause' : LIVEMODE ? (liveOk === false ? 'récepteur injoignable' : 'données réelles') : 'en direct';
 }
@@ -1517,14 +1517,14 @@ function chatRender() { const el = $('#chat'); if (!CH.open) { el.classList.remo
   const live = LIVEMODE, cloud = ai.saved && aiCloud(), msgs = CH.cur ? CH.cur.msgs : [];
   el.innerHTML = `<header><b style="flex:none">Assistant</b><select id="chatSel" aria-label="Conversation" ${live ? '' : 'disabled'}><option value="">Nouvelle conversation</option>${CH.convs.map(c => `<option value="${c.id}" ${CH.cur && CH.cur.id === c.id ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}</select>
     ${CH.cur ? `<button class="btn" data-chat="del" title="Supprimer cette conversation">Supprimer</button>` : ''}<button class="btn" data-chat="close" aria-label="Fermer">Fermer</button></header>
-  <div class="chat-msgs" id="chatMsgs">${!live ? '<p class="note">L’assistant répond sur les données réelles du récepteur : ouvrez la console depuis SysLens.</p>' : !ai.saved ? '<p class="note">Configurez d’abord une IA dans Paramètres › Intelligence artificielle (par exemple qwen3:8b avec Ollama, sur ce Mac).</p>' : ''}
+  <div class="chat-msgs" id="chatMsgs">${!live ? '<p class="note">L’assistant répond sur les données réelles du récepteur : ouvrez la console depuis SysLens.</p>' : !ai.saved ? '<p class="note">Aucune IA trouvée : lancez Ollama sur ce poste (l’app Ollama, ou <code>ollama serve</code>), puis rouvrez l’assistant. Ou choisissez une IA dans Paramètres › Intelligence artificielle.</p>' : ''}
     ${!msgs.length && live && ai.saved ? `<p class="note" style="margin:0">Posez une question sur vos incidents, vos équipements ou un log. L’assistant voit l’état actuel de SysLens.</p><div class="chips">${['Qu’est-ce que je dois traiter en premier ?', 'Résume les incidents des dernières 24 h', 'Un équipement a-t-il un problème en ce moment ?'].map(x => `<button type="button" data-chips="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}
     ${msgs.map(m => `<div class="msg ${m.role === 'user' ? 'u' : 'a'}${m.error ? ' err' : ''}">${m.role === 'user' ? `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>` : md(m.content)}${m.role === 'assistant' && m.model ? `<div class="meta">${esc(m.model)}</div>` : ''}</div>`).join('')}
     ${CH.busy ? `<div class="gen" role="status" aria-label="L’assistant écrit">${[...'Génération'].map((c, k) => `<i aria-hidden="true" style="animation-delay:${k / 10}s">${c}</i>`).join('')}<div class="ring"></div></div>` : ''}${CH.err ? `<p class="err">${esc(CH.err)}</p>` : ''}</div>
   <form id="chatForm"><textarea id="chatIn" rows="2" placeholder="Votre question…" aria-label="Votre question" ${live && ai.saved && !CH.busy ? '' : 'disabled'}></textarea><button class="btn p" ${live && ai.saved && !CH.busy ? '' : 'disabled'}>Envoyer</button></form>
-  <p class="note" style="margin:0;padding:0 14px 12px">${live && ai.saved ? esc(ai.provName() + ' · ' + ai.model) + (cloud ? ' · adresses IP et MAC masquées' : ' · sur ce poste') + ' · ' : ''}${ME ? 'Visible par vous seul.' : ''}</p>`;
+  <p class="note" style="margin:0;padding:0 14px 12px">${live && ai.saved ? esc(ai.provName() + ' · ' + ai.model) + (cloud ? ' · adresses IP et MAC masquées' : ' · sur ce poste') + (ai.auto ? ' (trouvée automatiquement)' : '') + ' · ' : ''}${ME ? 'Visible par vous seul.' : ''}</p>`;
   const box = $('#chatMsgs'); box.scrollTop = box.scrollHeight; }
-async function chatOpen(prefill) { CH.open = true; $('#chatBtn').setAttribute('aria-expanded', 'true'); if (LIVEMODE) await chatList(); chatRender(); const i = $('#chatIn'); if (i) { if (prefill) i.value = prefill; i.focus(); } }
+async function chatOpen(prefill) { CH.open = true; if (!ai.saved) await aiAutoDetect(); $('#chatBtn').setAttribute('aria-expanded', 'true'); if (LIVEMODE) await chatList(); chatRender(); const i = $('#chatIn'); if (i) { if (prefill) i.value = prefill; i.focus(); } }
 async function chatSend(text) { text = String(text || '').trim(); if (!text || CH.busy) return;
   const cur = CH.cur || {msgs: []}; CH.cur = {...cur, msgs: [...cur.msgs, {role: 'user', content: text}]}; CH.busy = true; CH.err = ''; chatRender();
   try { const r = await fetch('/api/chat', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({op: 'send', id: cur.id, text, ai: aiCfg()})}); const j = await r.json().catch(() => ({}));
@@ -1544,7 +1544,12 @@ document.addEventListener('change', async e => { if (e.target.id !== 'chatSel') 
 document.addEventListener('submit', e => { if (e.target.id !== 'chatForm') return; e.preventDefault(); const i = $('#chatIn'); chatSend(i.value); });
 document.addEventListener('keydown', e => { if (e.target.id === 'chatIn' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(e.target.value); }
   if (e.key === 'Escape' && CH.open && !$('#auth')) { CH.open = false; chatRender(); } });
-authInit().then(ok => { if (!ok) return;
+// Rien de configuré dans ce navigateur (autre adresse, nouveau poste) : on prend l'IA locale si Ollama tourne sur ce poste.
+async function aiAutoDetect() { if (!LIVEMODE || ai.saved) return;
+  try { const ms = ((await aiCall({op: 'models', provider: 'ollama', url: 'http://localhost:11434'})).models || []).filter(m => !/embed/i.test(m)); if (!ms.length) return;
+    const pick = ms.find(m => /^qwen3:8b/.test(m)) || ms.find(m => /qwen|llama|mistral|gemma/i.test(m)) || ms[0];
+    Object.assign(ai, {prov: 'ollama', mode: 'local', url: 'http://localhost:11434', model: pick, saved: true, auto: true}); aiPersist(); if (XS.ollama) Object.assign(XS.ollama, {mode: 'local', url: 'http://localhost:11434', model: pick}); if (CH.open) chatRender(); render(); } catch (e) {} }
+authInit().then(ok => { if (!ok) return; aiAutoDetect();
 if (LIVEMODE) { incLoad(); setInterval(incLoad, 30e3); refLoad(); setInterval(refLoad, 30e3); setInterval(() => refClassify(true), 10 * 60e3);
   updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; if (!ME) $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; refLoad().finally(() => { livePoll(); setInterval(livePoll, 3000); }); }
 render(); });

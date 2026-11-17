@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.8.2",
+    "date": "2026-11-17",
+    "points": [
+      "Assistant : si aucune IA n'est réglée dans ce navigateur (autre adresse que d'habitude, nouveau poste), SysLens prend tout seul l'IA locale d'Ollama sur ce poste (qwen3:8b en priorité).",
+      "Icône du bouton Assistant centrée dans son rond.",
+      "Barre latérale : en mode réel, l'IA indique « à configurer » s'il n'y en a pas, et Odoo « non branché » au lieu de valeurs de démonstration."
+    ]
+  },
+  {
     "version": "0.8.1",
     "date": "2026-11-17",
     "points": [

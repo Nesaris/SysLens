@@ -306,6 +306,7 @@ tr.newrow td{animation:pop .45s both;animation-delay:inherit}tr.newrow{animation
 .rng output{font:13px var(--mono);color:var(--mute);text-align:right}
 .rng input{accent-color:var(--acc)}
 @media(max-width:780px){.looks{grid-template-columns:1fr}.walls{grid-template-columns:repeat(3,minmax(0,1fr))}}
+table.treat tr.exp>td{background:var(--panel2);border-radius:0 0 10px 10px}table.treat tr[aria-expanded=true]>td{background:var(--panel2)}table.treat tr.sep>td{padding-top:18px;border-bottom:0}table.logs-in td{padding:6px 8px;vertical-align:top}table.logs-in{width:100%}table.logs-in td:first-child{white-space:nowrap;color:var(--mute);width:92px}table.logs-in td:nth-child(2){width:56px}
 @media (prefers-reduced-motion:reduce){.prog .p-run i{animation:none;border-top-color:var(--line2)}tr.newrow td{animation:none}}
 @media(max-width:640px){.kpis{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){.drawer,.drawer.pop,.drawer.pop.open{transition:none}.xwait i{animation:none}}
@@ -557,6 +558,22 @@ function incRows(list, compact) {
   return `<table class="stack"><thead><tr><th>Score</th><th>Incident</th><th>Client</th>${compact ? '' : '<th>Équipement</th><th class="num">Évén.</th><th>Statut</th>'}<th class="r">Dernier</th></tr></thead><tbody>` +
     list.map(i => `<tr class="click" data-inc="${esc(i.key)}"><td data-l="Score">${scChip(i.sc.s)}</td><td data-l="Incident">${esc(i.last.k === 'silence' ? 'Équipement silencieux' : CAT[i.last.k].sig)}</td><td data-l="Client">${esc(cName(i.last.cli))}</td>${compact ? '' : `<td data-l="Équipement" class="mono">${i.last.dev}</td><td data-l="Événements" class="num">${i.list.length || '—'}</td><td data-l="Statut"><span class="tag ${i.st === 'clos' ? 'ok' : ''}">${i.st}</span></td>`}<td data-l="Dernier" class="r">${ago(i.last.t)}</td></tr>`).join('') + '</tbody></table>';
 }
+// « À traiter » : un seul endroit. Chaque incident se déplie sur ses logs, avec les actions à côté ; les incidents réglés
+// sur la période restent juste en dessous, avec leurs logs aussi.
+let expInc = null;
+const incName = i => i.last.k === 'silence' ? 'Équipement silencieux' : (CAT[i.last.k] || {}).sig || i.last.k;
+function incLogs(i) {
+  if (!i.list.length) { const d = devices.find(x => x.id === i.last.dev); return `<p class="note" style="margin:0">${esc(i.last.msg)}.${d && d.ping && d.ping.ip ? ` Dernier ping vers ${esc(d.ping.ip)} : pas de réponse.` : ''} Vérifier l’alimentation et le câble de l’équipement, puis le lien qui le relie au réseau.</p>`; }
+  const ls = i.list.slice().sort((a, b) => b.t - a.t), c = CAT[i.last.k] || {};
+  return `${c.act ? `<p style="margin:0 0 10px"><b>À faire :</b> ${esc(c.act)}</p>` : ''}<table class="stack logs-in"><tbody>${ls.slice(0, 25).map(e => `<tr><td data-l="Heure" class="mono">${hhmm(e.t)}</td><td data-l="Score">${scChip(scoreOf(e, 1).s)}</td><td data-l="Log">${esc(e.msg)}${e.src || e.dst ? `<br><span class="note mono">${esc(e.src || '')}${e.dst ? ' → ' + esc(e.dst) : ''}${e.user ? ' · ' + esc(e.user) : ''}</span>` : ''}</td></tr>`).join('')}</tbody></table>${ls.length > 25 ? `<p class="note">… et ${ls.length - 25} autres logs.</p>` : ''}`;
+}
+function treatRows(open, done) {
+  if (!open.length && !done.length) return `<p class="empty">Rien à traiter.</p>`;
+  const row = (i, isDone) => { const on = expInc === i.key;
+    return `<tr class="click" data-exp="${esc(i.key)}" aria-expanded="${on}"><td data-l="Score">${scChip(i.sc.s)}</td><td data-l="Incident">${esc(incName(i))}${i.reopened ? ' <span class="tag">rouvert</span>' : ''}</td><td data-l="Client">${esc(cName(i.last.cli))}</td><td data-l="Équipement" class="mono">${esc(i.last.dev)}</td><td data-l="Logs" class="num">${i.list.length || '—'}</td><td data-l="Statut">${isDone ? `<span class="tag ok">${i.by === 'auto' ? 'revenu à la normale' : 'clos'}</span>` : i.st === 'acquitté' ? '<span class="tag">acquitté</span>' : '<span class="tag">à traiter</span>'}</td><td data-l="Dernier" class="r">${ago(isDone ? i.closedAt || i.last.t : i.last.t)} <span aria-hidden="true">${on ? '▾' : '▸'}</span></td></tr>` +
+      (on ? `<tr class="exp"><td colspan="7"><div style="padding:6px 4px 12px">${incLogs(i)}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${isDone ? (i.by === 'auto' ? '' : `<button class="btn" data-ist="${esc(i.key)}|ouvert">Rouvrir</button>`) : `${i.st === 'acquitté' ? '' : `<button class="btn" data-ist="${esc(i.key)}|acquitté">Acquitter</button>`}<button class="btn p" data-ist="${esc(i.key)}|clos">Clore et archiver</button>`}<button class="btn" data-inc="${esc(i.key)}">Détail du score</button></div></div></td></tr>` : ''); };
+  return `<table class="stack treat"><thead><tr><th>Score</th><th>Incident</th><th>Client</th><th>Équipement</th><th class="num">Logs</th><th>Statut</th><th class="r">Dernier</th></tr></thead><tbody>${open.map(i => row(i, false)).join('')}${done.length ? `<tr class="sep"><td colspan="7"><span class="note">Réglés sur la période · ${done.length}</span></td></tr>` + done.map(i => row(i, true)).join('') : ''}</tbody></table>`;
+}
 const V = {};
 function route() { const h = location.hash.slice(1); return VIEWS.some(v => v[0] === h) ? h : 'overview'; }
 function nav() {
@@ -626,7 +643,7 @@ V.overview = () => {
   <div class="seg" role="group" aria-label="Fenêtre de temps">${[6,12,24].map(h => `<button data-per="${h}" class="${per === h ? 'on' : ''}" aria-pressed="${per === h}">${h} h</button>`).join('')}</div></div>
   <div class="ov"><div class="ovmain">
   <section class="card c-logs"><h3>Logs reçus <span class="ico"><svg width="14" height="14"><use href="#i-logs"/></svg></span></h3>
-    <div class="big">${fmtN(nLogs)}</div><p class="note"><b style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</b> logs notés moyen ou plus${nIncW ? `, regroupés en ${nIncW} incident${nIncW > 1 ? 's' : ''}` : ''} · ${(nLogs / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
+    <div class="big">${fmtN(nLogs)}</div><p class="note"><a href="#a-traiter" data-goto="a-traiter" style="color:var(--grav);font-weight:500">${fmtN(nonBen)}</a> logs notés moyen ou plus${nIncW ? `, regroupés en ${nIncW} incident${nIncW > 1 ? 's' : ''}` : ''} · ${(nLogs / (per * 60)).toLocaleString('fr-FR',{maximumFractionDigits:1})} logs/min</p>
     <div class="cols" role="img" aria-label="Volume de logs sur ${per} heures, colorié par le niveau le plus haut">${cols}</div><div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div>
     <div class="gw">${gauge(risk / 100, LVC[rLv], 'Score le plus haut encore ouvert : ' + risk)}<div class="gv"><span class="big">${risk}<small>/100</small></span></div></div>
     <p class="note" style="text-align:center">Score le plus haut encore ouvert · ${LNAME[rLv]}</p></section>
@@ -643,7 +660,7 @@ V.overview = () => {
     <div class="axis"><span>−${per} h</span><span>−${per / 2} h</span><span>maintenant</span></div></section>
   <section class="card c-dots"><h3>Activité par client <span class="tag">${per} h</span></h3><div class="dots">${rows}</div>
     <div class="legend">${['critique','grave','moyen','benin'].map(l => `<div class="c-${l}"><b>${fmtN(byLv[l])}</b><span>${LNAME[l]}s</span></div>`).join('')}</div><p class="note" style="margin-top:8px">Logs reçus sur ${per} h, par niveau. Un incident regroupe les logs d’un même problème : voir Incidents.</p></section>
-  <section class="card c-tbl"><h3>À traiter maintenant <a href="#incidents">Voir les ${open.length} incidents</a></h3>${incRows(open.slice(0, 6))}</section>
+  <section class="card c-tbl" id="a-traiter"><h3>À traiter maintenant <a href="#incidents">Tous les incidents</a></h3>${treatRows(open.slice(0, 15), all.filter(i => i.st === 'clos' && (i.closedAt || i.last.t) >= t0).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0)).slice(0, 10))}</section>
   </div>
   <aside class="ovside">
     <section class="card"><h3>Couche IA <span class="tag ok">${aiCloud() ? 'cloud' : 'local'}</span></h3><div class="ring"><svg viewBox="0 0 88 88" role="img" aria-label="Budget IA consommé"><circle cx="44" cy="44" r="34" fill="none" stroke="var(--panel2)" stroke-width="9"/>${ring > 0 ? `<circle cx="44" cy="44" r="34" fill="none" stroke="${aiShare > 0.05 ? 'var(--grav)' : 'var(--acc)'}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${(ring * 100).toFixed(1)} 100" transform="rotate(-90 44 44)"/>` : ''}<text x="44" y="49" text-anchor="middle" font-size="15" font-family="Geist Mono, ui-monospace, monospace" fill="var(--ink)">${Math.round(ring * 100)} %</text></svg>
@@ -1126,6 +1143,11 @@ document.addEventListener('click', async e => {
   if (lv) incFilter = lv.dataset.lv === 'benin' ? '' : lv.dataset.lv;
   if (lv && lv.dataset.lv === 'benin') { e.preventDefault(); logFilter.lv = 'benin'; location.hash = 'logs'; return; }
   if (t.dataset.reopen) { t.disabled = true; try { await incSet(t.dataset.reopen, 'ouvert'); } catch (err) { t.disabled = false; return; } render(); return; }
+  const go = t.closest('[data-goto]'); if (go) { e.preventDefault(); const el = document.getElementById(go.dataset.goto); if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
+  const ist = t.closest('[data-ist]'); if (ist) { const v = ist.dataset.ist, key = v.slice(0, v.lastIndexOf('|')), st = v.slice(v.lastIndexOf('|') + 1), i = incidents().find(x => x.key === key); ist.disabled = true;
+    try { await incSet(key, st, st === 'clos' && i ? incSnap(i) : undefined); } catch (err) { ist.disabled = false; return; } if (st === 'clos' || st === 'ouvert') expInc = null; render(); return; }
+  if (row && !t.closest('[data-exp]')) return openInc(row.dataset.inc);
+  const ex = t.closest('[data-exp]'); if (ex) { expInc = expInc === ex.dataset.exp ? null : ex.dataset.exp; render(); return; }
   if (row) return openInc(row.dataset.inc);
   if (ev) { openRow = openRow === +ev.dataset.ev ? null : +ev.dataset.ev; $('#logbox').innerHTML = logTable(); return; }
   if (t.id === 'dClose' || t.id === 'veil') { if ($('#modal').classList.contains('on')) { closeModal(); render(); } else closeInc(); return; }

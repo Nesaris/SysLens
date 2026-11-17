@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.7.2",
+    "date": "2026-11-17",
+    "points": [
+      "Vue d'ensemble › À traiter maintenant : tout se fait au même endroit. Un clic sur un incident le déplie sur ses logs (heure, score, message, source → destination) avec l'action à faire, et les boutons Acquitter, Clore et archiver, Détail du score.",
+      "Juste en dessous : les incidents réglés sur la période (revenus à la normale ou clos), eux aussi dépliables sur leurs logs, avec Rouvrir.",
+      "Le nombre de logs notés moyen ou plus est cliquable et mène directement à cette liste."
+    ]
+  },
+  {
     "version": "0.7.1",
     "date": "2026-11-17",
     "points": [

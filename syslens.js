@@ -185,7 +185,7 @@ function stage2(ev, sample, replay) {
   recent.push(ev); if (recent.length > 300) recent.shift();
   if (sample) return SHOW_BENIN && !WORKERS && console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL.benin}BENIN   ${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
   if (!replay) evOut(JSON.stringify(ev));
-  if (ev.level !== 'benin') incident(ev); else if (ev.rec) recover(ev);
+  if (ev.level !== 'benin') { const I = incident(ev); if (!replay) alertIncident(I); } else if (ev.rec) recover(ev, replay);
   if (!replay) console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL[ev.level]}${ev.level.toUpperCase().padEnd(8)}${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
 }
 // Incidents agrégés côté serveur : un par (type, équipement, source), gardés 7 jours après le dernier événement.
@@ -196,13 +196,14 @@ function incident(ev) {
   const tk = portTok(ev.msg); if (tk) { I.toks = I.toks || []; if (!I.toks.includes(tk)) I.toks.push(tk); }
   I.samples.push(ev.raw); if (I.samples.length > 5) I.samples.shift(); incidents.set(key, I);
   if (incidents.size > 50000) incidents.delete(incidents.keys().next().value);
+  return I;
 }
 setInterval(() => { const lim = Date.now() - 7 * 864e5; for (const [k, I] of incidents) if (I.last < lim) incidents.delete(k); }, 600e3).unref();
 // « Port 3 is down » puis « Port 3 is up » : l'incident est marqué résolu tout seul (il se rouvre si le lien retombe).
 const portTok = m => { const x = String(m || '').match(/\b(port\s*\d+|lan\d+|wan\d*|ge\d+|opt\d*|eth\d+)\b/i); return x ? x[1].toLowerCase().replace(/\s+/g, '') : ''; };
-function recover(ev) { const r = REF.find(x => x.k === ev.k), tk = portTok(ev.msg);
+function recover(ev, replay) { const r = REF.find(x => x.k === ev.k), tk = portTok(ev.msg);
   for (const I of incidents.values()) if (I.dev === ev.dev && r && r.recovers.includes(I.k) && I.status !== 'résolu' && I.last <= ev.t && (!tk || !I.toks || I.toks.includes(tk))) {
-    I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; } }
+    I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; if (!replay) alertBack(I); } }
 // Un switch ou une borne n'envoie de log que s'il se passe quelque chose : avant de le dire silencieux, on le pinge.
 // Adresse : apprise des logs DHCP du pare-feu, ou sa source syslog si elle est privée et n'est partagée avec aucun autre équipement (pas de NAT).
 const IP_FILE = path.join(DIR, 'adresses.json'), hostIp = new Map(); let ipDirty = false;
@@ -218,7 +219,8 @@ async function checkQuiet() {
     if (fam === 'pare-feu' || now - (d.last || 0) < QUIET_MS) { d.ping = undefined; continue; }
     const learned = d.host && hostIp.get(d.host), ip = learned ? learned.ip : PRIV(d.from) && byFrom.get(d.from) === 1 ? d.from : null;
     if (!ip) { d.ping = { ip: null, ok: false, t: now }; continue; }
-    const r = await ping(ip); d.ping = { ip, ok: r.ok, ms: r.ms, t: Date.now() }; }
+    const r = await ping(ip), was = d.ping && d.ping.ip ? d.ping.ok : null; d.ping = { ip, ok: r.ok, ms: r.ms, t: Date.now() };
+    if (was !== null && was !== r.ok) alertPing(d, r.ok); }
   if (ipDirty) { ipDirty = false; try { fs.writeFileSync(IP_FILE, JSON.stringify(Object.fromEntries(hostIp))); } catch (e) {} } }
 if (!SELFTEST) { setInterval(() => checkQuiet().catch(() => {}), Math.min(60e3, Math.max(2e3, QUIET_MS))).unref(); setTimeout(() => checkQuiet().catch(() => {}), 3000).unref(); }   // premier contrôle dès le démarrage
 function mergeStats(p) {
@@ -335,9 +337,53 @@ function extLogo(id, r, fmt) {
 // --- Telegram : vérification du bot, détection du groupe (/start puis /configurate), message de test
 async function tg(token, method, body) {
   if (!/^\d{6,}:[\w-]{20,}$/.test(token || '')) throw new Error('Jeton invalide.');
-  const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(10000) });
+  const r = await fetch(`${process.env.SYSLENS_TG_API || 'https://api.telegram.org'}/bot${token}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(10000) });
   const j = await r.json().catch(() => ({})); if (!j.ok) throw new Error(j.error_code === 401 ? 'Jeton refusé par Telegram.' : /webhook/i.test(j.description || '') ? 'Ce bot utilise déjà un webhook : supprimez-le ou utilisez un autre bot.' : (j.description || 'Telegram ne répond pas.')); return j.result; }
+// ---------- Alertes Telegram envoyées par le serveur ----------
+// Le jeton du bot ne va jamais dans un fichier : trousseau macOS (« syslens-telegram »), ou variable SYSLENS_TELEGRAM_TOKEN ailleurs.
+// logs/alertes.json ne garde que le groupe et les niveaux. Un incident est signalé une fois, puis de nouveau s'il s'aggrave
+// ou au-delà de 30 min ; pas plus de 18 messages par minute (Telegram limite à 20 par groupe).
+const ALERT_FILE = path.join(DIR, 'alertes.json'), KC = process.platform === 'darwin' && !SELFTEST && !process.env.SYSLENS_NO_KEYCHAIN;
+let alertCfg = {}; try { alertCfg = JSON.parse(fs.readFileSync(ALERT_FILE, 'utf8')) || {}; } catch (e) {}
+let tgToken = process.env.SYSLENS_TELEGRAM_TOKEN || '';
+const kc = (args, input) => new Promise(ok => cp.execFile('security', args, { timeout: 5000 }, (e, out) => ok(e ? null : String(out).trim())));
+if (KC && !tgToken) kc(['find-generic-password', '-a', 'syslens', '-s', 'syslens-telegram', '-w']).then(t => { if (t) tgToken = t; });
+const alertSent = new Map(), alertQ = [], alertLog = []; let alertTimer = null, alertMin = { t: 0, n: 0 }, alertDrop = 0;
+const RANK = { moyen: 1, grave: 2, critique: 3 }, DOT = { critique: '🔴', grave: '🟠', moyen: '🟡' };
+const alertOn = lv => { const c = alertCfg.telegram; return !!(c && c.on && c.chat && tgToken && (!lv || c.lv.includes(lv))); };
+function alertPush(text) { alertQ.push(text); if (alertQ.length > 200) alertQ.shift(); if (!alertTimer) alertTimer = setTimeout(alertFlush, 300); }
+async function alertFlush() { alertTimer = null; const c = alertCfg.telegram; if (!alertQ.length || !alertOn()) return;
+  const now = Date.now(); if (now - alertMin.t > 60e3) { if (alertDrop) { alertQ.unshift(`… ${alertDrop} autre(s) alerte(s) non envoyée(s) pour ne pas saturer le groupe : voir SysLens.`); alertDrop = 0; } alertMin = { t: now, n: 0 }; }
+  if (alertMin.n >= 18) { alertDrop += alertQ.length; alertQ.length = 0; return; }
+  const text = alertQ.shift(); alertMin.n++;
+  try { await tg(tgToken, 'sendMessage', { chat_id: c.chat, text, disable_web_page_preview: true }); alertLog.push({ t: Date.now(), ok: true, text: text.split('\n').slice(0, 2).join(' · ') }); }
+  catch (e) { alertLog.push({ t: Date.now(), ok: false, text: text.split('\n')[0], err: e.message }); }
+  if (alertLog.length > 50) alertLog.shift();
+  if (alertQ.length) alertTimer = setTimeout(alertFlush, 1100); }
+const hhmmss = t => new Date(t).toLocaleTimeString('fr-FR');
+function alertIncident(I) { if (!I || !alertOn(I.level)) return;
+  const prev = alertSent.get(I.key), now = Date.now();
+  if (prev && RANK[I.level] <= RANK[prev.level] && now - prev.t < 30 * 60e3) return;
+  alertSent.set(I.key, { t: now, level: I.level }); if (alertSent.size > 5000) alertSent.delete(alertSent.keys().next().value);
+  const e = REF_RAW.find(x => x.k === I.k) || {}, dev = I.host || I.from, fam = famOfProduct(I.product || I.host);
+  alertPush(`${DOT[I.level] || ''} ${I.level.toUpperCase()} · ${I.score}/100${prev ? ' · aggravé' : ''}
+${e.sig || (I.cat ? I.cat + ' : ' : '') + String(I.msg).slice(0, 120)}
+${dev} (${fam})${I.src && isPublic(I.src) ? ' · source ' + I.src : ''}
+${e.sig ? 'Log : ' + String(I.msg).slice(0, 160) + '\n' : ''}${e.act ? 'À faire : ' + e.act + '\n' : ''}${I.count > 1 ? I.count + ' logs · ' : ''}${hhmmss(I.last)}`); }
+function alertBack(I) { const prev = alertSent.get(I.key); if (!prev || !alertOn()) return; alertSent.delete(I.key);
+  const e = REF_RAW.find(x => x.k === I.k) || {}; alertPush(`✅ Revenu à la normale\n${e.sig || I.cat || I.k}\n${I.host || I.from} · ${hhmmss(I.resolved || Date.now())}`); }
+function alertPing(d, ok) { if (!alertOn(ok ? null : 'grave')) return; const k = 'ping|' + (d.host || d.from);
+  if (!ok) { alertSent.set(k, { t: Date.now(), level: 'grave' }); alertPush(`🟠 GRAVE · équipement injoignable\n${d.host || d.from} (${famOfProduct(d.product || d.host)}) ne répond plus au ping (${d.ping.ip})\nÀ faire : vérifier son alimentation, son câble et le lien qui le relie au réseau.\n${hhmmss(Date.now())}`); }
+  else if (alertSent.delete(k)) alertPush(`✅ De nouveau joignable\n${d.host || d.from} répond au ping (${d.ping.ms} ms) · ${hhmmss(Date.now())}`); }
 async function tgApi(q) {
+  if (q.op === 'status') { const c = alertCfg.telegram || {}; return { on: !!c.on, chat: c.chat || '', chatName: c.chatName || '', lv: c.lv || ['critique', 'grave'], token: !!tgToken, keychain: KC, sent: alertLog.slice(-15).reverse() }; }
+  if (q.op === 'save') { const token = String(q.token || '').trim() || tgToken, me = await tg(token, 'getMe');
+    const lv = (Array.isArray(q.lv) ? q.lv : []).filter(l => RANK[l]); if (!lv.length) throw new Error('Choisissez au moins un niveau.');
+    if (!/^-?\d{3,20}$/.test(String(q.chat || ''))) throw new Error('Groupe invalide.');
+    if (token !== tgToken && KC && (await kc(['add-generic-password', '-U', '-a', 'syslens', '-s', 'syslens-telegram', '-l', 'SysLens (bot Telegram)', '-w', token])) === null) throw new Error('Impossible d’enregistrer le jeton dans le trousseau macOS.');
+    tgToken = token; alertCfg.telegram = { on: true, chat: String(q.chat), chatName: String(q.chatName || '').slice(0, 80), lv, bot: me.username };
+    fs.writeFileSync(ALERT_FILE, JSON.stringify(alertCfg, null, 1)); return { ok: true, keychain: KC }; }
+  if (q.op === 'remove') { if (KC) await kc(['delete-generic-password', '-a', 'syslens', '-s', 'syslens-telegram']); tgToken = ''; delete alertCfg.telegram; fs.writeFileSync(ALERT_FILE, JSON.stringify(alertCfg, null, 1)); return { ok: true }; }
   if (q.op === 'me') { const me = await tg(q.token, 'getMe'); return { username: me.username }; }
   if (q.op === 'detect') {
     const ups = await tg(q.token, 'getUpdates', { timeout: 0, allowed_updates: ['message'] }), started = new Set(); let hit = null;
@@ -349,7 +395,7 @@ async function tgApi(q) {
     await tg(q.token, 'getUpdates', { offset: hit.last + 1, timeout: 0 });
     await tg(q.token, 'sendMessage', { chat_id: hit.chat, text: 'SysLens : groupe reconnu. Les alertes arriveront ici.' }).catch(() => {});
     return { found: true, chat: hit.chat, title: hit.title }; }
-  if (q.op === 'send') { await tg(q.token, 'sendMessage', { chat_id: q.chat, text: `SysLens — message de test\nLes alertes de niveau ${String(q.lv || 'critique').slice(0, 60)} arriveront dans ce groupe.` }); return { sent: true }; }
+  if (q.op === 'send') { await tg(String(q.token || '').trim() || tgToken, 'sendMessage', { chat_id: q.chat || (alertCfg.telegram || {}).chat, text: `SysLens — message de test\nLes alertes de niveau ${String(q.lv || 'critique').slice(0, 60)} arriveront dans ce groupe.` }); return { sent: true }; }
   throw new Error('Opération inconnue.'); }
 // --- IA : liste des modèles (vérifie la clé ou l'adresse Ollama) et présence de Codex / Claude Code
 const AI_API = { chatgpt: ['https://api.openai.com/v1/models', 'bearer'], mistral: ['https://api.mistral.ai/v1/models', 'bearer'], grok: ['https://api.x.ai/v1/models', 'bearer'], hermes: ['https://inference-api.nousresearch.com/v1/models', 'bearer'], gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', 'google'], claude: ['https://api.anthropic.com/v1/models?limit=100', 'anthropic'] };

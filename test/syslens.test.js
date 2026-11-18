@@ -413,3 +413,28 @@ test('comptes et assistant : premier compte local, connexion obligatoire, conver
   for (let i = 0; i < 5; i++) await req('/api/auth/login', { login: 'admin', password: 'faux-' + i });
   assert.equal((await req('/api/auth/login', { login: 'admin', password: 'mot-de-passe-admin' })).statut, 429);
 });
+
+test('alertes Telegram : le serveur envoie critiques et graves une seule fois, puis le retour à la normale', async () => {
+  const json = { 'content-type': 'application/json' }, recus = [];
+  const tgFake = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const m = q.url.split('/').pop(), c = b ? JSON.parse(b) : {};
+    rr.writeHead(200, json); if (m === 'getMe') return rr.end(JSON.stringify({ ok: true, result: { username: 'essai_bot' } }));
+    if (m === 'sendMessage') { recus.push(c); return rr.end(JSON.stringify({ ok: true, result: {} })); } rr.end(JSON.stringify({ ok: true, result: [] })); }); });
+  await new Promise(ok => tgFake.listen(0, '127.0.0.1', ok)); after(() => tgFake.close());
+  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1' });
+  const tgp = b => requete(s.web, '/api/tg', { methode: 'POST', entetes: json, corps: JSON.stringify(b) });
+  assert.equal((await tgp({ op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', chatName: 'Astreinte', lv: ['critique', 'grave'] })).statut, 200);
+  const st = (await tgp({ op: 'status' })).json; assert.equal(st.on, true); assert.equal(st.token, true);
+  assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'alertes.json'), 'utf8').includes('AAEssai'), 'le jeton ne va pas dans un fichier');
+  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com destroyed cat=Anti-Malware ZYlevel=alert')]);
+  for (let i = 0; i < 40 && !recus.length; i++) await attendre(100);
+  assert.equal(recus.length, 1); assert.equal(recus[0].chat_id, '-100123'); assert.match(recus[0].text, /CRITIQUE/); assert.match(recus[0].text, /usgflex50w/);
+  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com destroyed cat=Anti-Malware ZYlevel=alert')]);
+  await attendre(1500); assert.equal(recus.length, 1, 'même incident : pas de deuxième message');
+  await envoyer(s.syslog, [cef('Interface', 3, 'msg=Interface wan1 link down cat=Interface ZYlevel=error')]); for (let i = 0; i < 40 && recus.length < 2; i++) await attendre(100);
+  assert.equal(recus.length, 2); assert.match(recus[1].text, /GRAVE/);
+  await envoyer(s.syslog, [cef('Interface', 6, 'msg=Interface wan1 link up cat=Interface ZYlevel=info')]); for (let i = 0; i < 40 && recus.length < 3; i++) await attendre(100);
+  assert.equal(recus.length, 3); assert.match(recus[2].text, /Revenu à la normale/);
+  await envoyer(s.syslog, [cef('System', 5, 'msg=Configuration has been changed by admin cat=System ZYlevel=notice')]); await attendre(1500);
+  assert.equal(recus.length, 3, 'niveau moyen non choisi : rien');
+  assert.equal((await tgp({ op: 'status' })).json.sent.length, 3);
+});

@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.9.0",
+    "date": "2026-11-18",
+    "points": [
+      "Alertes Telegram réelles : le serveur envoie lui-même les incidents des niveaux choisis (critiques et graves par défaut) au groupe d'astreinte, même console fermée, puis « Revenu à la normale » quand l'incident se règle.",
+      "Un switch ou une borne qui ne répond plus au ping déclenche une alerte grave, puis « De nouveau joignable ».",
+      "Pas de rafale : un incident n'est renvoyé que s'il s'aggrave ou au-delà de 30 min, et 18 messages par minute au plus (au-delà, un message de synthèse).",
+      "Le jeton du bot est gardé dans le trousseau macOS, jamais dans un fichier. Extensions › Telegram montre l'état et les dernières alertes envoyées."
+    ]
+  },
+  {
     "version": "0.8.4",
     "date": "2026-11-17",
     "points": [

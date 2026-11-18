@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.9.1",
+    "date": "2026-11-18",
+    "points": [
+      "Mot de passe oublié : une commande lancée sur le poste de SysLens ouvre la réinitialisation d'un compte pour 15 min ; le nouveau mot de passe se choisit ensuite dans la console, depuis ce même poste. Les sessions ouvertes du compte sont fermées. Impossible depuis le réseau."
+    ]
+  },
+  {
     "version": "0.9.0",
     "date": "2026-11-18",
     "points": [

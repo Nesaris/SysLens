@@ -616,6 +616,16 @@ async function authApi(q, r, me, url) {
     const ok = ent ? checkPw(ent[1], pw) : (hashPw(pw), false);   // même durée que le compte existe ou non
     if (!ok) { f.push(now); fails.set(key, f); return send(r, 401, { error: 'Identifiant ou mot de passe incorrect.' }); }
     fails.delete(key); newSession(r, ent[0]); return send(r, 200, { user: pubUser(ent[0], ent[1]) }); }
+  // Mot de passe oublié : la réinitialisation s'ouvre seulement en ligne de commande sur ce poste (ni navigateur, ni cookie),
+  // pour 15 min ; le nouveau mot de passe se choisit ensuite dans la console, depuis ce même poste.
+  if (url === '/api/auth/reinit') { if (!isLoop(q) || q.headers.origin || q.headers.cookie) return send(r, 403, { error: 'À lancer en ligne de commande sur le poste de SysLens.' });
+    const ent = Object.entries(accounts.users).find(([, u]) => u.login === String(b.login || '').trim().toLowerCase()); if (!ent) return send(r, 404, { error: 'Compte inconnu.' });
+    ent[1].resetUntil = Date.now() + 15 * 60e3; for (const [k, v] of Object.entries(sessions)) if (v.uid === ent[0]) delete sessions[k]; saveAcc(); saveSess();
+    return send(r, 200, { ok: true, message: `Réinitialisation ouverte 15 min pour « ${ent[1].login} » : choisissez le nouveau mot de passe dans la console, sur ce poste (Mot de passe oublié).` }); }
+  if (url === '/api/auth/reset') { if (!isLoop(q)) return send(r, 403, { error: 'Depuis le poste de SysLens uniquement.' });
+    const ent = Object.entries(accounts.users).find(([, u]) => u.login === String(b.login || '').trim().toLowerCase());
+    if (!ent || !(ent[1].resetUntil > Date.now())) return send(r, 403, { error: 'Pas de réinitialisation ouverte pour ce compte : lancez d’abord la commande sur le poste de SysLens.' });
+    Object.assign(ent[1], hashPw(pwCheck(b.new))); delete ent[1].resetUntil; delete ent[1].mustChange; saveAcc(); newSession(r, ent[0]); return send(r, 200, { ok: true }); }
   if (url === '/api/auth/logout') { const t = cookieTok(q); if (t) { delete sessions[sha(t)]; saveSess(); }
     r.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'sl_sess=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' }); return r.end('{"ok":true}'); }
   if (!me) return send(r, 401, { error: 'Connexion requise.' });

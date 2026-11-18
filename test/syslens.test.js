@@ -408,6 +408,14 @@ test('comptes et assistant : premier compte local, connexion obligatoire, conver
   assert.match(prompts.at(-1).messages[0].content, /Ce que contiennent les logs, par type/);
   const st = fs.statSync(path.join(s.dossier, 'logs', 'comptes.json')); assert.equal(st.mode & 0o777, 0o600);
   assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'comptes.json'), 'utf8').includes('mot-de-passe-admin'), 'mot de passe haché');
+  // Mot de passe oublié : ouverture en ligne de commande sur ce poste, puis nouveau mot de passe choisi dans la console.
+  assert.equal((await req('/api/auth/reset', { login: 'tech1', new: 'nouveau-mot-de-passe' })).statut, 403, 'pas sans ouverture préalable');
+  assert.equal((await requete(s.web, '/api/auth/reinit', { methode: 'POST', entetes: { ...json, origin: 'http://127.0.0.1:' + s.web }, corps: JSON.stringify({ login: 'tech1' }) })).statut, 403, 'pas depuis un navigateur');
+  assert.equal((await requete(s.web, '/api/auth/reinit', { methode: 'POST', entetes: json, corps: JSON.stringify({ login: 'tech1' }) })).statut, 200);
+  assert.equal((await req('/api/events?since=0', undefined, T)).statut, 401, 'les sessions du compte sont fermées');
+  const nv = await req('/api/auth/reset', { login: 'tech1', new: 'nouveau-mot-de-passe' }); assert.equal(nv.statut, 200);
+  assert.equal((await req('/api/auth/login', { login: 'tech1', password: 'nouveau-mot-de-passe' })).statut, 200);
+  assert.equal((await req('/api/auth/reset', { login: 'tech1', new: 'encore-un-autre-mdp' })).statut, 403, 'usage unique');
   // Déconnexion, puis 5 essais ratés : blocage.
   await req('/api/auth/logout', {}, A); assert.equal((await req('/api/events?since=0', undefined, A)).statut, 401);
   for (let i = 0; i < 5; i++) await req('/api/auth/login', { login: 'admin', password: 'faux-' + i });

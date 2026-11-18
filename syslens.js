@@ -708,7 +708,7 @@ Règles, à respecter toujours :
 6. Réponds en français, en tutoyant si le technicien tutoie.
 
 Exemples (chiffres et noms fictifs : prends toujours ceux de l'état de SysLens) :
-Q : salut → R : Bonjour. Que veux-tu vérifier : incidents, logs ou équipements ?
+Q : salut → R : Bonjour Camille. Que veux-tu vérifier : incidents, logs ou équipements ?
 Q : les équipements sont tous en ligne ? → R : Oui, les 4 équipements sont en ligne.
 Q : combien de logs aujourd'hui ? → R : 1 234 logs sur les dernières 24 h.
 Q : résume tous les logs → R : 1 234 logs sur 24 h. Presque tous bénins : 1 100 paquets bloqués par la règle par défaut, 90 baux DHCP, 30 connexions VPN. À noter : 2 graves (tunnel VPN tombé sur fw-site) et 1 moyen (configuration modifiée).
@@ -731,6 +731,10 @@ function oneByOne(t) { const x = String(t).toLowerCase().normalize('NFD').replac
 const NO_SECRET = 'Je ne donne jamais de mot de passe, de clé ni de jeton. Les jetons se gèrent dans Extensions, les comptes dans Réglages.';
 function askSecret(t) { const x = String(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   return /\b(mot de passe|mdp|password|passwd|jeton|token|cle (api|d'?api|du bot|secrete)|api ?key|secret)\b/.test(x) && !/\b(oubli|perdu|change|chang|reinit|reset|modifi|definir|creer|configur|actif|marche|fonctionne|branche)/.test(x); }
+// Simple salutation : réponse fixe avec le prénom du compte connecté, sans appeler le modèle.
+const prenom = me => me && me.name ? String(me.name).trim().split(/\s+/)[0] : '';
+function greeting(t) { const x = String(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[!?.,;:)(\s]+/g, ' ').trim();
+  return /^(salut|bonjour|bonsoir|hello|hi|hey|coucou|yo|wesh|slt|bjr|cc|re|salut ca va|bonjour ca va|ca va)( (toi|l'?ia|assistant|syslens))?$/.test(x); }
 const NO_EMOJI = x => x.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]️?/gu, '').replace(/[ \t]+\n/g, '\n').trim();
 async function chatApi(q, r, me, url) {
   const uid = me ? me.id : hasAccounts() ? null : 'local'; if (!uid) return send(r, 401, { error: 'Connexion requise.' });
@@ -749,9 +753,9 @@ async function chatApi(q, r, me, url) {
     if (d.convs.length > 200) d.convs.sort((a, x) => x.updated - a.updated).splice(200); }
   const ai = b.ai || {}, cloud = ai.mode !== 'local' && ai.prov !== 'ollama';
   c.msgs.push({ role: 'user', content: text, t: Date.now() }); chatBusy.add(uid);
-  try { const fixed = askSecret(text) ? NO_SECRET : offTopic(text) ? OFF_TOPIC : oneByOne(text) ? ONE_BY_ONE : ''; if (fixed) { c.msgs.push({ role: 'assistant', content: fixed, t: Date.now(), model: 'garde-fou SysLens' }); throw null; }
+  try { const fixed = greeting(text) ? `Bonjour${prenom(me) ? ' ' + prenom(me) : ''}. Que veux-tu vérifier : incidents, logs ou équipements ?` : askSecret(text) ? NO_SECRET : offTopic(text) ? OFF_TOPIC : oneByOne(text) ? ONE_BY_ONE : ''; if (fixed) { c.msgs.push({ role: 'assistant', content: fixed, t: Date.now(), model: 'garde-fou SysLens' }); throw null; }
     const hist = c.msgs.slice(-12).map(m => ({ role: m.role, content: m.content }));
-    const out = await aiAsk(ai, [{ role: 'system', content: CHAT_SYS + '\n\n' + chatContext(cloud) }, ...hist], null, 900, false);
+    const out = await aiAsk(ai, [{ role: 'system', content: CHAT_SYS + (prenom(me) ? `\nLe technicien s'appelle ${prenom(me)} : si tu le salues, salue-le par ce prénom.` : '') + '\n\n' + chatContext(cloud) }, ...hist], null, 900, false);
     c.msgs.push({ role: 'assistant', content: NO_EMOJI(String(out || '')) || '(réponse vide)', t: Date.now(), model: (ai.model || ai.prov || '') + (aiStats.last && (ai.mode === 'local' || ai.prov === 'ollama') ? ` · ${aiStats.last.tps} tok/s` : '') }); }
   catch (e) { if (e) c.msgs.push({ role: 'assistant', content: 'Je n’ai pas pu répondre : ' + e.message, t: Date.now(), error: true }); }
   finally { chatBusy.delete(uid); }

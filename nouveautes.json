@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.9.3",
+    "date": "2026-11-18",
+    "points": [
+      "Assistant : « Salut » reçoit « Bonjour <prénom>. Que veux-tu vérifier : incidents, logs ou équipements ? », tout de suite et sans appeler le modèle. Le prénom vient du compte connecté, et l'IA l'emploie aussi quand elle salue."
+    ]
+  },
+  {
     "version": "0.9.2",
     "date": "2026-11-18",
     "points": [

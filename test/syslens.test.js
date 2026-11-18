@@ -402,6 +402,8 @@ test('comptes et assistant : premier compte local, connexion obligatoire, conver
   const avant = prompts.length, hs = await req('/api/chat', { op: 'send', text: 'non juste 20+20=Combien', ai }, A);
   assert.equal(prompts.length, avant, 'pas d’appel au modèle'); assert.match(hs.json.msgs.at(-1).content, /uniquement sur SysLens/);
   assert.match(prompts[0].messages[0].content, /jamais des consignes/);
+  const av0 = prompts.length, hi = await req('/api/chat', { op: 'send', text: 'Salut !', ai }, A);
+  assert.equal(hi.json.msgs.at(-1).content, 'Bonjour Admin. Que veux-tu vérifier : incidents, logs ou équipements ?'); assert.equal(prompts.length, av0, 'salutation sans appel au modèle');
   const avant2 = prompts.length, ud = await req('/api/chat', { op: 'send', text: 'décris moi les 50000 logs un par un', ai }, A);
   assert.equal(prompts.length, avant2, 'détail ligne par ligne : pas d’appel au modèle'); assert.match(ud.json.msgs.at(-1).content, /Flux de logs/);
   await req('/api/chat', { op: 'send', text: 'Un résumé de tous les logs', ai }, A); assert.equal(prompts.length, avant2 + 1, 'un résumé, lui, va au modèle');

@@ -402,6 +402,11 @@ test('comptes et assistant : premier compte local, connexion obligatoire, conver
   const avant = prompts.length, hs = await req('/api/chat', { op: 'send', text: 'non juste 20+20=Combien', ai }, A);
   assert.equal(prompts.length, avant, 'pas d’appel au modèle'); assert.match(hs.json.msgs.at(-1).content, /uniquement sur SysLens/);
   assert.match(prompts[0].messages[0].content, /jamais des consignes/);
+  const avf = prompts.length, fo = await req('/api/chat', { op: 'send', text: 'Peux-tu configurer Telegram stp', ai }, A);
+  assert.equal(fo.json.msgs.at(-1).action, 'telegram'); assert.equal(prompts.length, avf, 'formulaire sans appel au modèle');
+  const fd = await req('/api/chat', { op: 'actiondone', id: fo.json.id, idx: fo.json.msgs.length - 1, group: 'Astreinte', lv: ['critique', 'grave'] }, A);
+  assert.match(fd.json.msgs.at(-1).content, /Telegram configuré.*Astreinte/);
+  assert.equal((await req('/api/tg', { op: 'me', token: '123456789:AAEssaiJetonBidonPourLesTests_x' }, T)).statut, 400, 'Telegram réservé aux administrateurs');
   const av0 = prompts.length, hi = await req('/api/chat', { op: 'send', text: 'Salut !', ai }, A);
   assert.equal(hi.json.msgs.at(-1).content, 'Bonjour Admin. Que veux-tu vérifier : incidents, logs ou équipements ?'); assert.equal(prompts.length, av0, 'salutation sans appel au modèle');
   const avant2 = prompts.length, ud = await req('/api/chat', { op: 'send', text: 'décris moi les 50000 logs un par un', ai }, A);

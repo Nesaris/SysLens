@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.9.4",
+    "date": "2026-11-18",
+    "points": [
+      "Assistant : « configure Telegram » ouvre un formulaire pas à pas dans la conversation (jeton du bot, groupe, niveaux, message de test, enregistrement). Ce qu'on y saisit va directement à SysLens, jamais à l'IA ; la conversation ne garde que « Telegram configuré » et le nom du groupe.",
+      "La configuration de Telegram est réservée aux administrateurs."
+    ]
+  },
+  {
     "version": "0.9.3",
     "date": "2026-11-18",
     "points": [

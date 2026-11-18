@@ -446,3 +446,20 @@ test('alertes Telegram : le serveur envoie critiques et graves une seule fois, p
   assert.equal(recus.length, 3, 'niveau moyen non choisi : rien');
   assert.equal((await tgp({ op: 'status' })).json.sent.length, 3);
 });
+
+test('alertes Telegram : rafale regroupée, lien instable, switch renommé injoignable', async () => {
+  const json = { 'content-type': 'application/json' }, recus = [];
+  const tgFake = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const m = q.url.split('/').pop(), c = b ? JSON.parse(b) : {};
+    rr.writeHead(200, json); if (m === 'getMe') return rr.end(JSON.stringify({ ok: true, result: { username: 'essai_bot' } })); if (m === 'sendMessage') recus.push(c.text); rr.end(JSON.stringify({ ok: true, result: {} })); }); });
+  await new Promise(ok => tgFake.listen(0, '127.0.0.1', ok)); after(() => tgFake.close());
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'faux-ping-')); fs.writeFileSync(path.join(bin, 'ping'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1', PATH: bin + path.delimiter + process.env.PATH, SYSLENS_QUIET_MIN: '0.03' });
+  await requete(s.web, '/api/tg', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', lv: ['critique', 'grave'] }) });
+  const fin = async n => { for (let i = 0; i < 80 && recus.length < n; i++) await attendre(100); };
+  await envoyer(s.syslog, Array.from({ length: 30 }, (_, i) => cef('IDP', 1, `src=198.51.100.${i + 1} dst=192.168.1.10 msg=From WAN to LAN1 [type=Web Attack] SQL injection, Action: drop, Severity: high cat=IDP ZYlevel=alert`)));
+  await fin(1); await attendre(2500); assert.equal(recus.length, 1, 'une rafale = un message'); assert.match(recus[0], /30 incidents en rafale/); assert.match(recus[0], /30 source/);
+  for (let i = 0; i < 4; i++) { await envoyer(s.syslog, [cef('Interface', 3, 'msg=Interface wan1 link down cat=Interface ZYlevel=error')]); await attendre(1800); await envoyer(s.syslog, [cef('Interface', 6, 'msg=Interface wan1 link up cat=Interface ZYlevel=info')]); await attendre(1800); }
+  await attendre(1500); const apres = recus.slice(1); assert.ok(apres.some(m => /INSTABLE/.test(m)), 'lien instable signalé'); assert.ok(apres.length <= 6, 'puis silence : ' + apres.length + ' messages');
+  const n = recus.length; await envoyer(s.syslog, [cef('DHCP', 6, 'msg=DHCP server assigned 192.168.1.77 to SW-COMPTA(00:11:22:33:44:55) cat=DHCP ZYlevel=info'), '<134>2026-11-18T11:00:00Z SW-COMPTA STP: Topology change detected on port 3']);
+  await fin(n + 1); assert.ok(recus.slice(n).some(m => /injoignable/.test(m) && /SW-COMPTA \(switch\)/.test(m)), 'switch renommé reconnu et signalé');
+});

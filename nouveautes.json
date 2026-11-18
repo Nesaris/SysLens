@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.9.2",
+    "date": "2026-11-18",
+    "points": [
+      "Alertes : une rafale du même type sur le même équipement devient un seul message (« 300 incidents en rafale, 300 sources »), au lieu d'une file qui traînait plusieurs minutes. Au-delà de 17 messages par minute, une seule synthèse.",
+      "Lien instable : au 3e aller-retour en 10 min, un message « INSTABLE », puis silence 30 min sur cet incident (avant : un message à chaque chute et à chaque retour).",
+      "Switch ou borne renommé (« SW-COMPTA ») : reconnu à ses logs (ports, STP, PoE, Wi-Fi…) et non plus pris pour un pare-feu ; il est pingé quand il se tait, et une alerte part dès le premier ping raté s'il parlait encore dans les 6 dernières heures.",
+      "IA : la file des types à qualifier passe d'abord ce que l'équipement annonce grave, puis les plus fréquents ; un flot de types bidons ne bloque plus les vrais.",
+      "Assistant : refus net pour un mot de passe, une clé ou un jeton ; marche à suivre pour un mot de passe oublié ; contexte allégé, réponses en 3 à 6 s au lieu de 8 à 9 avec qwen3:8b.",
+      "Référentiel : réponse de la console bornée (213 Ko au lieu de 1,25 Mo après 20 000 types inédits), exemples raccourcis."
+    ]
+  },
+  {
     "version": "0.9.1",
     "date": "2026-11-18",
     "points": [

@@ -1438,7 +1438,7 @@ function liveK(x) {
   return k; }
 const addCat = c => { catalog.push(c); CAT[c.k] = c; };
 function liveDev(x) { const id = x.host || x.from; let d = devices.find(v => v.id === id);
-  if (!d) { const fam = famOf(x.product || ''); d = {id, cli:'cli-test', fam, model:MODELS[x.product] || x.product || '?', fw:x.ver ? 'ZLD ' + x.ver : '—', src:x.fmt === 'CEF' ? 'Syslog CEF' : 'Syslog', crit:fam === 'Pare-feu' ? 'tete' : '', last:0, ip:x.from, lastT:x.t}; devices.push(d); }
+  if (!d) { const fam = x.fam ? ({'pare-feu': 'Pare-feu', 'switch': 'Switch', 'borne Wi-Fi': 'Borne'}[x.fam] || famOf(x.product || x.host || '')) : famOf(x.product || ''); d = {id, cli:'cli-test', fam, model:MODELS[x.product] || x.product || '?', fw:x.ver ? 'ZLD ' + x.ver : '—', src:x.fmt === 'CEF' ? 'Syslog CEF' : 'Syslog', crit:fam === 'Pare-feu' ? 'tete' : '', last:0, ip:x.from, lastT:x.t}; devices.push(d); }
   d.lastT = Math.max(d.lastT || 0, x.t); return d; }
 function liveEv(x) { const d = liveDev(x), k = liveK(x), c = CAT[k], f = x.f || {};
   events.push({id: ++evId, t: x.t, dev: d.id, cli: d.cli, fam: d.fam, model: d.model, k, cat: x.cat || c.cat, msg: x.msg || '', vsev: x.sev ?? 6, src: f.src || '', dst: f.dst || '', user: f.user || '', admin: !!c.admin, maint: false, raw: x.raw || '', srv: x.score, parts: x.parts, cov: x.cov}); }
@@ -1448,7 +1448,7 @@ async function livePoll() { if (paused) return;
     versionSeen(j.version);
     for (const x of j.events) { liveEv(x); liveSince = Math.max(liveSince, x.id); }
     if (j.counts) SRVCNT = j.counts;
-    for (const x of j.devices || []) { if (!x.last) continue; const d = liveDev({host: x.host, from: x.from, product: x.product, ver: x.ver, fmt: x.fmt, t: x.last}); d.ping = x.ping; }
+    for (const x of j.devices || []) { if (!x.last) continue; const d = liveDev({host: x.host, from: x.from, product: x.product, ver: x.ver, fmt: x.fmt, fam: x.fam, t: x.last}); d.ping = x.ping; if (x.fam) d.fam = {'pare-feu': 'Pare-feu', 'switch': 'Switch', 'borne Wi-Fi': 'Borne'}[x.fam] || d.fam; }
     if (j.events.length) { events.sort((a,b) => a.t - b.t); if (events.length > 20000) events.splice(0, events.length - 20000); srcCache.clear(); }
     const now = Date.now(); devices.forEach(d => d.last = Math.max(0, Math.round((now - d.lastT) / 60e3)));
     const first = liveOk !== true; liveOk = true; liveN++;

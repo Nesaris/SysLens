@@ -52,6 +52,7 @@ Le port 514 est privilégié sur Linux : lancer avec les droits nécessaires, ou
 | `RAW_GZIP` | `0` pour écrire le brut sans compression | compressé |
 | `SYSLENS_AUTOUPDATE` | `0` pour couper la mise à jour automatique | activée |
 | `SYSLENS_REPO` | Dépôt dont les releases sont suivies | `Nesaris/SysLens` |
+| `SYSLENS_DOCS` | `0` pour couper la recherche de la documentation des modèles | activée |
 
 Mettez toujours `ALLOW` sur un réseau partagé : sans lui, n'importe quelle machine peut injecter des logs.
 
@@ -90,8 +91,25 @@ Les types à qualifier sont envoyés à l'IA choisie dans la console, par lots d
 - Chaque validation ou correction d'un technicien est gardée et sert d'exemple à l'IA. Pour chaque type à noter, SysLens lui montre les types déjà validés qui lui ressemblent le plus (mêmes mots dans la catégorie et le message), avec la correction quand le technicien a changé sa note.
 - L'IA reçoit aussi le barème du centre : les ~30 entrées du référentiel les plus proches des types à noter, avec leur note (corrigée s'il y a lieu).
 - **Autonomie** (Référentiel › Apprentissage de l'IA, désactivée par défaut) : quand l'IA est d'accord avec les techniciens au moins 9 fois sur les 10 dernières décisions (10 minimum), elle valide seule ses propositions sûres (confiance ≥ 0,7). Elle ne baisse jamais seule sous 30 un log que l'équipement annonce alert ou pire. Les validations automatiques ne comptent pas dans le taux d'accord.
+- **Entraînement au repos** (activé par défaut avec le classement en continu) : quand il n'y a rien à classer, l'IA s'exerce par séances de 6 sur des types dont la note est connue : types validés par un technicien, types reconnus par le référentiel. La réponse lui est cachée (l'exercice n'est ni dans ses exemples ni dans son barème). Ses erreurs sont gardées et lui sont remontrées comme exemples corrigés quand un type à noter leur ressemble ; son biais sur les 300 derniers exercices lui est rappelé dans la consigne, par niveau dès 7 points (une IA surnote souvent la routine et sous-note le grave, ce qui s'annule dans la moyenne), sinon en tout dès 5 points. Une erreur est reposée 1 h plus tard, une réussite 7 jours plus tard. Elle relit aussi une fois ses propositions de plus de 6 h : si elle change d'avis, la proposition est marquée « avis instable », sans que sa note change. Le repos : rien à classer, aucune recherche de documentation, personne en train d'écrire à l'assistant depuis 3 min, charge de la machine sous 70 %. Une séance toutes les 5 min au plus, 30 min de pause après une erreur de l'IA. Les résultats de l'entraînement ne comptent pas pour l'autonomie.
 - **Classement en continu** : avec une IA locale (Ollama sur ce poste), le serveur classe les nouveaux types toutes les 2 minutes, même console fermée. Une IA en ligne ne peut pas servir ici, puisque sa clé ne quitte pas le navigateur.
 - Avec Ollama, SysLens coupe la phase de réflexion des modèles qui en ont une (qwen3…) impose un schéma JSON, borne la longueur de la réponse et garde le modèle chargé 30 minutes : un lot de 8 types prend environ 35 à 40 s avec qwen3:8b sur un Mac M5 de 16 Go. Prévoir 8 Go de mémoire libre pour un modèle 8B : en dessous, le système passe sur le disque et un lot peut prendre plusieurs minutes.
+
+### Documentation des modèles
+
+Dès qu'un équipement envoie ses premiers logs, SysLens cherche la documentation de son modèle dans la bibliothèque officielle de Zyxel (`www.zyxel.com`, fichiers sur `download.zyxel.com`) : le guide utilisateur et le guide des commandes. Un document n'est accepté que s'il passe cinq contrôles :
+
+1. téléchargé en HTTPS depuis le site officiel, sans redirection vers un autre site ;
+2. rangé dans le dossier du modèle sur `download.zyxel.com` ;
+3. vrai PDF ;
+4. bon type de guide sur la couverture (User's Guide, CLI Reference Guide) ;
+5. série du modèle sur la couverture (par exemple « GS1350 Series » pour un GS1350-26HP).
+
+SysLens note aussi le nombre de fois où le modèle exact est cité, la version du guide et son empreinte SHA-256. Il garde le texte, page par page, dans `logs/docs/` (PDFKit sur macOS, `pdftotext` s'il est installé, sinon son propre lecteur) et ne garde pas le PDF.
+
+Ensuite, quand l'IA classe un type de log de ce modèle, elle reçoit la page du guide qui en parle le plus (sommaire et index écartés). L'extrait lui est donné comme une donnée : une consigne écrite dans un document n'est pas suivie, et les garde-fous habituels s'appliquent (une proposition non validée ne baisse jamais une note). La proposition garde le lien vers la page du guide.
+
+Un modèle introuvable (modèle Nebula seul, nom d'équipement qui n'est pas un modèle) est recherché de nouveau 7 jours plus tard, une erreur réseau 6 heures plus tard. Quand les logs ne donnent pas le modèle, il se saisit dans Équipements. Seul le nom du modèle part vers Zyxel.
 
 ### Banc d'essai de l'IA
 

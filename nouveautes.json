@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.9.5",
+    "date": "2026-11-18",
+    "points": [
+      "Documentation des modèles : pour chaque modèle Zyxel vu dans les logs, SysLens cherche son guide utilisateur et son guide des commandes dans la bibliothèque officielle de Zyxel, les télécharge et les contrôle : site officiel en HTTPS, dossier du modèle, vrai PDF, type de guide, série du modèle sur la couverture. Un document qui ne passe pas est refusé.",
+      "Le texte des guides acceptés est gardé (pas le PDF) ; quand l'IA classe un type de log de ce modèle, elle reçoit la page du guide qui en parle, et la proposition garde le lien vers cette page.",
+      "Quand un guide arrive, les propositions faites sans lui pour ce modèle sont refaites avec.",
+      "Détection › Documentation montre chaque modèle, ses documents, le détail des contrôles et la page qui explique l'envoi des logs. Équipements : état de la doc par équipement, et saisie du modèle quand les logs ne le donnent pas.",
+      "Seul le nom du modèle part vers le site de Zyxel ; SYSLENS_DOCS=0 coupe la recherche.",
+      "IA : recherche dans les guides améliorée (mots rares, mots qui se suivent comme dans le log, titre de la page, fonction nommée par la catégorie) : 14 bonnes pages sur 15 sur un banc de logs réels, contre 9 avant.",
+      "Entraînement au repos : quand il n'y a rien à classer, l'IA locale s'exerce sur des types dont la note est connue (validés par un technicien ou reconnus par le référentiel), sans voir la réponse. Ses erreurs lui sont remontrées ensuite comme exemples corrigés, et son biais lui est rappelé, niveau par niveau (« sur les logs bénins, tes notes sont en moyenne 20 points trop hautes »). Une erreur est reposée 1 h plus tard, une réussite 7 jours plus tard.",
+      "Relecture : l'IA relit une fois ses propositions de plus de 6 h ; si elle change d'avis (écart de plus de 15 points ou autre niveau), la proposition est marquée « avis instable » et passe en tête des propositions à valider. Sa note n'est pas modifiée.",
+      "Le repos, c'est : rien à classer, aucune recherche de doc, personne en train d'écrire à l'assistant depuis 3 min, machine peu chargée. Une séance de 6 exercices toutes les 5 min au plus. Réglage et résultats dans Référentiel › Apprentissage de l'IA. L'autonomie reste fondée sur les seules décisions des techniciens.",
+      "Sur 32 types gardés de côté et notés par qwen3:8b, avec puis sans ce que l'entraînement a appris sur les autres : 40 % de notes justes au lieu de 31 %, écart moyen 13,6 points au lieu de 16."
+    ]
+  },
+  {
     "version": "0.9.4",
     "date": "2026-11-18",
     "points": [

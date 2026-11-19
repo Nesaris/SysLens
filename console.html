@@ -597,7 +597,7 @@ const ago = t => { const m = Math.max(0, Math.round((Date.now() - t) / 60e3)); r
 const hhmm = t => new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 const lvChip = lv => `<span class="lv c-${lv}">${LNAME[lv]}</span>`, scChip = (s) => `<span class="score c-${level(s)}">${s}</span>`;
 const byCli = a => fCli ? a.filter(x => (x.cli || x.last.cli) === fCli) : a;
-const GROUPS = [['Supervision',[['overview','Vue d’ensemble'],['clients','Clients'],['incidents','Incidents'],['logs','Flux de logs'],['devices','Équipements']]],['Détection',[['catalog','Référentiel'],['rules','Règles'],['docs','Documentation']]],['Paramètres',[['extensions','Extensions'],['ai','Intelligence artificielle'],['admin','Administration'],['settings','Réglages']]]];
+const GROUPS = [['Supervision',[['overview','Vue d’ensemble'],['clients','Clients'],['incidents','Incidents'],['logs','Flux de logs'],['devices','Équipements']]],['Détection',[['catalog','Référentiel'],['rules','Règles'],['docs','Documentation']]],['Paramètres',[['extensions','Extensions'],['ai','Intelligence artificielle'],['centre','Centre de formation'],['admin','Administration'],['settings','Réglages']]]];
 const VIEWS = GROUPS.flatMap(g => g[1]);
 const MON = () => clients.filter(c => devices.some(d => d.cli === c.id));
 function incRows(list, compact) {
@@ -853,6 +853,8 @@ const EXT = [
   {id:'zyxel', name:'Zyxel', type:'Constructeur', desc:'Pare-feux ZLD et uOS, switchs, bornes, Nebula : parsers CEF et syslog, API Nebula, référentiel.', caps:['logs.syslog','devices.pull','catalog'], v:'1.0.0', st:'on'},
   {id:'odoo', name:'Odoo', type:'CRM / ERP', desc:'Importe les clients et leurs sites, crée les nouveaux clients et les tickets Helpdesk.', caps:['clients.pull','clients.push','tickets.push'], v:'1.0.0', st:'on', lastSync: Date.now() - 4 * 60e3},
   {id:'telegram', name:'Telegram', type:'Notification', desc:'Envoie les alertes critiques et graves au groupe d’astreinte.', caps:['alerts.push'], v:'1.0.0', st:'config'},
+  {id:'teams', name:'Microsoft Teams', type:'Notification', desc:'Envoie les alertes dans un canal Teams, sous forme de carte, par un flux Workflows.', caps:['alerts.push'], v:'1.0.0', st:'config'},
+  {id:'whatsapp', name:'WhatsApp', type:'Notification', desc:'Envoie les alertes sur les téléphones d’astreinte par l’API officielle WhatsApp Business (Meta).', caps:['alerts.push'], v:'1.0.0', st:'config'},
   {id:'smtp', name:'Mail (SMTP)', type:'Notification', desc:'Alertes et résumé quotidien par mail.', caps:['alerts.push','digest'], v:'1.0.0', st:'on'},
   {id:'cisco', name:'Cisco', type:'Constructeur', desc:'Adaptateur prévu après la v1.', caps:[], v:'—', st:'soon'},
   {id:'unifi', name:'Ubiquiti UniFi', type:'Constructeur', desc:'Adaptateur prévu après la v1.', caps:[], v:'—', st:'soon'},
@@ -939,6 +941,8 @@ function newExtPanel() { return `<h2 style="font-size:19px;margin:0">Créer une 
 // --- configuration des extensions pas à pas (une question par écran)
 const XS = { odoo: OC, zyxel: {udp: 514, tcp: 6514, neb: '', nebFreq: 5, silFw: SILENCE['Pare-feu'], silSw: SILENCE.Switch},
   telegram: {token: '', chat: '', chatName: '', lv: ['critique', 'grave'], tested: false},
+  teams: {url: '', canal: '', lv: ['critique', 'grave'], tested: false},
+  whatsapp: {phoneId: '', token: '', template: 'syslens_alerte', lang: 'fr', to: '', lv: ['critique'], tested: false},
   smtp: {host: 'smtp.exemple.local', port: 587, tls: true, from: 'syslens@exemple.local', to: 'astreinte@exemple.local', digest: '8', tested: true} };
 OC.key = OC.key || 'demo-cle-non-reelle'; OC.tested = true;
 const xf = (label, k, v, type = 'text', ph = '', hint = '') => `<label>${label}<input type="${type}" data-k="${k}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" autocomplete="off" spellcheck="false">${hint ? `<span class="note">${hint}</span>` : ''}</label>`;
@@ -994,6 +998,32 @@ const XW = {
       body: s => xtest(s, 'Envoyer le message de test'), ok: s => s.tested, sum: s => s.tested ? 'Message de test reçu' : 'Pas encore testé',
       run: s => [`Bot ${s.bot || ''} reconnu`, `Envoi dans « ${s.chatName} »`, 'Message de test envoyé'],
       real: async s => { await tgCall({op: 'send', token: s.token.trim(), chat: s.chat, lv: s.lv.map(l => LNAME[l].toLowerCase()).join(', ')}); }}],
+  teams: [
+    {t: 'Créer le flux dans Teams', d: 'Teams reçoit les alertes par un flux Workflows attaché au canal d’astreinte.',
+      body: s => xhow(['Dans Teams, ouvrez le canal d’astreinte, puis <b>•••</b> › <b>Workflows</b>.', 'Choisissez le modèle <b>« Publier dans un canal lorsqu’une requête webhook est reçue »</b>, puis l’équipe et le canal.', 'Teams affiche une <b>adresse</b> : copiez-la et collez-la ci-dessous. Elle vaut un mot de passe : SysLens la garde dans le trousseau, jamais dans un fichier.']) + `<div class="xf1">${xf('Adresse du flux', 'url', s.url, 'password', 'https://…logic.azure.com/… ou …powerplatform.com/…')}${xf('Nom du canal (pour mémoire)', 'canal', s.canal, 'text', 'Astreinte')}</div>`,
+      ok: s => s.saved && !s.url ? true : /^https:\/\/[^\s]+\.(logic\.azure\.com|powerplatform\.com|powerautomate\.com|webhook\.office\.com)(:\d+)?\//i.test(s.url.trim()), sum: s => s.canal ? 'Canal ' + s.canal : 'Flux enregistré', reset: ['tested']},
+    {t: 'Quelles alertes envoyer ?', d: 'Une carte par alerte ; les retours à la normale suivent le niveau de l’alerte qu’ils referment.',
+      body: s => `<div class="chips">${['critique', 'grave', 'moyen'].map(l => `<label class="chip"><input type="checkbox" data-klist="lv" value="${l}" ${s.lv.includes(l) ? 'checked' : ''}>${LNAME[l]}</label>`).join('')}</div>`,
+      ok: s => s.lv.length > 0, sum: s => s.lv.map(l => LNAME[l]).join(', '), reset: ['tested']},
+    {t: 'Message de test', d: 'Une vraie carte part dans le canal pour vérifier que tout fonctionne.',
+      body: s => xtest(s, 'Envoyer la carte de test'), ok: s => s.tested, sum: s => s.tested ? 'Carte de test reçue' : 'Pas encore testé',
+      run: s => ['Flux Teams joint', 'Carte de test envoyée'], real: async s => { await notifCall({op: 'teams-test', url: s.url.trim(), lv: s.lv}); }}],
+  whatsapp: [
+    {t: 'Compte WhatsApp Business', d: 'Les alertes partent du numéro WhatsApp Business de l’entreprise, par l’API officielle de Meta.',
+      body: s => xhow(['Dans <b>Meta Business Suite</b> › WhatsApp Manager › <b>Configuration de l’API</b>, copiez l’<b>identifiant du numéro de téléphone</b>.', 'Dans les paramètres de l’entreprise, créez un <b>utilisateur système</b> avec la permission <span class="mono">whatsapp_business_messaging</span>, puis générez un <b>jeton permanent</b>.', 'Collez-les ci-dessous. Le jeton reste dans le trousseau macOS, jamais dans un fichier.']) + `<div class="xf1">${xf('Identifiant du numéro d’envoi', 'phoneId', s.phoneId, 'text', '123456789012345')}${xf('Jeton d’accès', 'token', s.token, 'password', s.saved ? 'déjà enregistré' : 'EAA…')}</div>`,
+      ok: s => /^\d{6,20}$/.test(s.phoneId.trim()) && (s.saved || s.token.trim().length >= 20), sum: s => 'Numéro d’envoi ' + s.phoneId, reset: ['tested']},
+    {t: 'Modèle de message', d: 'Meta n’autorise que des messages approuvés pour écrire en premier à quelqu’un.',
+      body: s => xhow(['Dans WhatsApp Manager › <b>Modèles de message</b>, créez un modèle de catégorie <b>Utilitaire</b>, en français, nommé par exemple <span class="mono">syslens_alerte</span>.', 'Texte du modèle : <span class="mono">Alerte SysLens : {{1}}</span> (une seule variable : SysLens y met l’alerte, sur une ligne).', 'Attendez son approbation (souvent quelques minutes). Pour un tout premier essai, le modèle <span class="mono">hello_world</span> fourni par Meta fonctionne sans variable.']) + `<div class="xf1">${xf('Nom du modèle', 'template', s.template, 'text', 'syslens_alerte')}${xf('Langue du modèle', 'lang', s.lang, 'text', 'fr')}</div>`,
+      ok: s => /^[a-z0-9_]{1,512}$/.test(s.template.trim()) && /^[a-z]{2,3}(_[A-Z]{2})?$/.test(s.lang.trim()), sum: s => `Modèle ${s.template} (${s.lang})`, reset: ['tested']},
+    {t: 'Téléphones d’astreinte', d: 'Jusqu’à 5 numéros, au format international.',
+      body: s => `<div class="xf1">${xf('Numéros (séparés par des virgules)', 'to', s.to, 'text', '+33612345678, +33698765432')}</div><p class="note">Tant que le compte Meta est en mode test, ajoutez d’abord ces numéros dans Configuration de l’API › destinataires.</p>`,
+      ok: s => { const n = s.to.split(/[,;\s]+/).map(x => x.replace(/[.()-]/g, '')).filter(Boolean); return n.length > 0 && n.length <= 5 && n.every(x => /^\+?\d{8,15}$/.test(x)); }, sum: s => s.to.split(/[,;\s]+/).filter(Boolean).length + ' numéro(s)', reset: ['tested']},
+    {t: 'Quelles alertes envoyer ?', d: 'Meta facture les messages qu’une entreprise envoie en premier : par défaut, les critiques seulement.',
+      body: s => `<div class="chips">${['critique', 'grave', 'moyen'].map(l => `<label class="chip"><input type="checkbox" data-klist="lv" value="${l}" ${s.lv.includes(l) ? 'checked' : ''}>${LNAME[l]}</label>`).join('')}</div>`,
+      ok: s => s.lv.length > 0, sum: s => s.lv.map(l => LNAME[l]).join(', '), reset: ['tested']},
+    {t: 'Message de test', d: 'Un vrai message part sur chaque numéro pour vérifier que tout fonctionne.',
+      body: s => xtest(s, 'Envoyer le message de test'), ok: s => s.tested, sum: s => s.tested ? 'Message de test reçu' : 'Pas encore testé',
+      run: s => ['Compte WhatsApp Business joint', 'Message envoyé sur chaque numéro'], real: async s => { await notifCall({op: 'wa-test', phoneId: s.phoneId.trim(), token: s.token.trim(), template: s.template.trim(), lang: s.lang.trim(), to: s.to, lv: s.lv}); }}],
   smtp: [
     {t: 'Serveur d’envoi', d: 'Le serveur de messagerie qui enverra les alertes.',
       body: s => `<div class="xf1">${xf('Serveur SMTP', 'host', s.host, 'text', 'smtp.mon-entreprise.fr')}${xf('Port', 'port', s.port, 'number', '587')}</div><label class="sw" style="margin-top:12px"><input type="checkbox" data-kbool="tls" ${s.tls ? 'checked' : ''}>Connexion chiffrée (STARTTLS)</label>`,
@@ -1056,6 +1086,9 @@ document.addEventListener('click', async e => { if (!xw || !e.target.closest('#d
       if (st.check) { const b = $('#xNext'); b.disabled = true; b.textContent = 'Vérification…'; try { await st.check(s); } catch (err) { xw.err = err.message; xRender(); return; } }
       xw.step++; xw.log = []; xw.err = ''; xw.polling = false; xRender(); return; }
     if (xw.ai) { aiSave(); extMsg = 'Fournisseur IA enregistré.'; xw.step = 'sum'; xRender(); nav(); if (route() === 'ai') $('#view').innerHTML = V.ai(); return; }
+    if (LIVEMODE && (xw.id === 'teams' || xw.id === 'whatsapp')) { const b = $('#xNext'); b.disabled = true; b.textContent = 'Enregistrement…';
+      try { const r = await notifCall(xw.id === 'teams' ? {op: 'teams-save', url: s.url.trim(), canal: s.canal, lv: s.lv} : {op: 'wa-save', phoneId: s.phoneId.trim(), token: s.token.trim(), template: s.template.trim(), lang: s.lang.trim(), to: s.to, lv: s.lv});
+        s.url = ''; s.token = ''; s.saved = true; s.keychain = r.keychain; notifStatus(); } catch (err) { xw.err = err.message; b.disabled = false; b.textContent = 'Enregistrer'; xRender(); return; } }
     if (LIVEMODE && xw.id === 'telegram') { const b = $('#xNext'); b.disabled = true; b.textContent = 'Enregistrement…';
       try { const r = await tgCall({op: 'save', token: s.token.trim(), chat: s.chat, chatName: s.chatName, lv: s.lv}); s.token = ''; s.saved = true; s.keychain = r.keychain; } catch (err) { xw.err = err.message; b.disabled = false; b.textContent = 'Enregistrer'; xRender(); return; } }
     W.forEach(st => st.save && st.save(s)); const x = EXT.find(z => z.id === xw.id); x.st = 'on'; if (x.id === 'odoo') x.lastSync = Date.now();
@@ -1139,8 +1172,64 @@ XS.ollama.url = ai.url; XS.ollama.model = ai.model; XS.ollama.models = null;
 V.ai = () => { const p = AIP.find(x => x.id === ai.prov);
   return `<h1>Intelligence artificielle</h1><p class="sub">L’IA donne un avis sur les incidents moyens et graves ; elle ne change jamais une note, et les critiques partent sans l’attendre.</p>
   <section class="panel xcur"><div class="xdh" style="margin:0">${xLogo(p.id, p.name)}<div><h2>${esc(ai.provName())}</h2><p class="sub">Modèle <span class="mono">${esc(ai.model || 'par défaut')}</span> · ${aiCloud() ? `${ai.allowed.length} client(s) autorisé(s), les autres restent en local` : 'aucune donnée ne sort du réseau'}</p></div></div><span class="tag ${aiCloud() ? 'warn' : 'ok'}">${aiCloud() ? 'Hors du réseau' : 'Local'}</span></section>
+  ${LIVEMODE && ai.saved ? fmPanel() : ''}
   <section class="xsec"><h2>Fournisseurs <small>${AIP.length}</small></h2><div class="xgrid">${AIP.map(x => `<button class="xc" data-aip="${x.id}"><span class="xtop">${xLogo(x.id, x.name)}${ai.prov === x.id ? '<span class="tag ok">Actif</span>' : ''}</span><span><h3>${esc(x.name)}</h3><span class="ty">${esc(x.type)}</span></span><p>${esc(x.desc)}</p><span class="xft"><span>${x.modes.map(m => MODEX[m]).join(' · ')}</span><em>${ai.prov === x.id ? 'Réglages' : 'Choisir'}</em></span></button>`).join('')}</div></section>
   <section class="panel" style="margin-top:22px"><h2>Journal des appels</h2>${aiLog.length ? `<table class="stack"><thead><tr><th>Heure</th><th>Client</th><th>Incident</th><th>Fournisseur</th><th class="num">Caractères envoyés</th></tr></thead><tbody>${aiLog.slice().reverse().map(l => `<tr><td data-l="Heure" class="mono">${hhmm(l.t)}</td><td data-l="Client">${esc(cName(l.cli))}</td><td data-l="Incident">${esc(l.inc)}</td><td data-l="Fournisseur">${esc(l.p)}</td><td data-l="Caractères" class="num">${l.n}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Aucun appel dans cette session. Ouvrez un incident moyen ou grave pour en déclencher un.</p>'}</section>`; };
+// Formation de l'IA : examen livré avec SysLens, fiche par modèle, compétences et règles (le serveur fait tout, voir /api/ref).
+let FM = null, fmTimer = null, fmMsg = '';
+const fmKey = () => (ai.mode === 'local' ? 'ollama' : ai.prov) + ':' + (ai.model || 'par défaut');
+async function fmLoad() { if (!LIVEMODE) return; try { FM = await refPost({op: 'formation-etat'}); } catch (e) { return; }
+  clearTimeout(fmTimer); if (FM.formation && FM.formation.st === 'en cours') fmTimer = setTimeout(fmLoad, 2500);
+  if (route() === 'ai') $('#view').innerHTML = V.ai(); }
+async function fmStart() { fmMsg = ''; try { FM = {...(FM || {}), ...(await refPost({op: 'formation', ai: aiCfg()}))}; } catch (e) { fmMsg = e.message; } fmLoad(); }
+function fmPanel() { if (!FM) { fmLoad(); return ''; }
+  const P = (FM.profils || {})[fmKey()], f = FM.formation && FM.formation.key === fmKey() ? FM.formation : null, pc = x => Math.round((x || 0) * 100) + ' %';
+  const V2 = {'prête': ['ok', 'Prête'], 'utilisable': ['warn', 'Utilisable, à surveiller'], 'pas adaptée': ['crit', 'Pas adaptée']}, [vc, vl] = P ? V2[P.verdict] || ['', P.verdict] : ['', ''];
+  const LVN = ['bénins', 'moyens', 'graves', 'critiques'];
+  const run = f && f.st === 'en cours';
+  return `<section class="panel" style="margin-top:16px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><h2 style="margin:0">Formation de ${esc(ai.model || ai.provName())}</h2>
+    <p class="note" style="margin-top:4px">Examen de ${FM.corpus ? Math.min(24, FM.corpus) : 24} logs Zyxel d’exemple livrés avec SysLens (aucune donnée client), dont la bonne note est connue. La fiche règle ensuite cette IA : taille des lots, rappel de biais, erreurs remontrées comme exemples corrigés.</p></div>
+    <button class="btn ${P ? '' : 'p'}" id="fmGo" ${run ? 'disabled' : ''}>${run ? 'Formation en cours…' : P ? 'Refaire la formation' : 'Former cette IA'}</button></div>
+    ${run ? `<div style="margin-top:12px"><div style="height:8px;border-radius:4px;background:var(--line2);overflow:hidden"><div style="height:100%;width:${Math.round(f.done / (f.total || 1) * 100)}%;background:var(--acc)"></div></div><p class="note">${f.done} / ${f.total} logs notés</p></div>` : ''}
+    ${f && f.st === 'erreur' ? `<p class="note" style="color:var(--crit)">Formation impossible : ${esc(f.err || '')}</p>` : ''}${fmMsg ? `<p class="note" style="color:var(--crit)">${esc(fmMsg)}</p>` : ''}
+    ${P ? `<div style="display:flex;gap:28px;flex-wrap:wrap;margin-top:14px;align-items:center"><span class="tag ${vc}" style="font-size:14px">${vl}</span>
+      <div><b style="font-size:22px">${pc(P.niveau)}</b><div class="note">au bon niveau</div></div><div><b style="font-size:22px">${pc(P.justes)}</b><div class="note">notes justes (±10)</div></div>
+      <div><b style="font-size:22px">${P.ecart ?? '—'}</b><div class="note">points d’écart moyen</div></div><div><b style="font-size:22px">${pc(P.lisibles)}</b><div class="note">réponses lisibles</div></div>
+      <div><b style="font-size:22px">${P.sParType} s</b><div class="note">par type de log</div></div></div>
+      ${P.biais && P.biais.length ? `<p class="note" style="margin-top:8px">Par niveau : ${P.biais.map(b => `${LVN[b.lv]} ${b.b > 0 ? '+' : ''}${b.b} pts, ${pc(b.justes)} justes`).join(' · ')}</p>` : ''}
+      <p class="note">Formée le ${new Date(P.at).toLocaleString('fr-FR')} · lots de ${P.lot} types${P.verdict === 'pas adaptée' ? ' · ses propositions restent possibles, mais à valider une par une' : ''}${P.err ? ' · dernière erreur : ' + esc(P.err) : ''}</p>` : ''}
+    <details style="margin-top:12px"><summary><b>Compétences prêtes</b> <span class="note">${(FM.competences || []).length}</span></summary><ul style="margin:6px 0 0 0;padding-left:18px">${(FM.competences || []).map(c => `<li><b>${esc(c.nom)}</b> : ${esc(c.quoi)}${c.appuis && c.appuis.length ? `<div class="note">S’appuie sur : ${c.appuis.map(esc).join(', ')}</div>` : ''}</li>`).join('')}</ul></details>
+    <details style="margin-top:8px"><summary><b>Règles appliquées par SysLens</b> <span class="note">${(FM.regles || []).length}, quel que soit le modèle</span></summary><ul style="margin:6px 0 0 0;padding-left:18px">${(FM.regles || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul></details>
+  </section>`; }
+document.addEventListener('click', e => { if (e.target.closest('#fmGo')) { e.target.closest('#fmGo').disabled = true; fmStart(); } });
+// Centre de formation : bac à sable de plusieurs heures, piloté par le serveur (/api/ref, op « centre »).
+let CS = null, csTimer = null, csMsg = '', csH = 12;
+async function csLoad() { if (!LIVEMODE) return; try { CS = await refPost({op: 'centre-etat'}); } catch (e) { return; }
+  clearTimeout(csTimer); if (route() === 'centre') { csTimer = setTimeout(csLoad, CS.run && CS.run.st === 'en cours' ? 5000 : 30000); if (!document.activeElement.matches('select,input')) $('#view').innerHTML = V.centre(); } }
+async function csDo(action) { csMsg = ''; try { CS = await refPost({op: 'centre', action, heures: csH, ai: action === 'lancer' || action === 'reprendre' ? aiCfg() : undefined}); } catch (e) { csMsg = e.message; } csLoad(); }
+V.centre = () => { if (!LIVEMODE) return '<h1>Centre de formation</h1><p class="empty">Disponible sur la console reliée au récepteur.</p>';
+  if (!CS) { csLoad(); return '<h1>Centre de formation</h1><p class="note">Chargement…</p>'; }
+  const R = CS.run, K = CS.kinds || {}, pc = x => x == null ? '—' : Math.round(x * 100) + ' %', on = R && R.st === 'en cours', cloud = ai.mode !== 'local';
+  const left = R ? Math.max(0, R.end - Date.now()) : 0, dur = R ? R.end - R.start : 1, hh = ms => Math.floor(ms / 3600e3) + ' h ' + String(Math.floor(ms % 3600e3 / 60e3)).padStart(2, '0');
+  const hours = R ? Object.entries(R.hours || {}).map(([h, x]) => [+h, x]).sort((a, b) => a[0] - b[0]) : [];
+  const chart = hours.length ? `<div style="display:flex;gap:4px;align-items:flex-end;height:90px;margin-top:8px" role="img" aria-label="Taux de bonnes réponses heure par heure">${hours.map(([h, x]) => `<div title="Heure ${h + 1} : ${pc(x.ok / x.n)} sur ${x.n}" style="flex:1;max-width:28px;background:var(--acc);opacity:.85;border-radius:3px 3px 0 0;height:${Math.max(4, Math.round(x.ok / x.n * 86))}px"></div>`).join('')}</div><div class="note">Bonnes réponses, heure par heure (${hours.length} h)</div>` : '';
+  return `<h1>Centre de formation</h1><p class="sub">Un bac à sable qui simule SysLens pendant des heures, sans toucher aux vrais incidents. L’IA y note des logs, corrige des notes fausses, trouve causes et actions, choisit l’incident urgent sur un site qui déborde et résiste aux consignes glissées dans les logs. La bonne réponse vient du référentiel ; une erreur revient plus tard, jusqu’à ce qu’elle soit acquise, et devient un exemple corrigé pour ce modèle en production.</p>
+  <section class="panel"><div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:center">
+    <div><h2 style="margin:0">${R ? esc(R.model || R.prov) : esc(ai.model || ai.provName())}</h2><p class="note" style="margin-top:4px">${R ? `${{'en cours': 'En cours', 'pause': 'En pause', 'fini': 'Terminée', 'arrêtée': 'Arrêtée'}[R.st] || R.st}${on ? ' · ' + esc(R.phase || '') + ' · reste ' + hh(left) : ''} · ${R.matiere} situations de base${R.local ? ', dont les types réels du site' : ' (corpus d’exemple seulement : IA en ligne)'}` : 'Pas encore de formation.'}</p></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${on ? `<button class="btn" data-cs="pause">Pause</button><button class="btn" data-cs="arreter">Arrêter</button>` : R && R.st === 'pause' ? `<button class="btn p" data-cs="reprendre">Reprendre</button><button class="btn" data-cs="arreter">Arrêter</button>` : `<label class="note" for="csH">Durée</label><select id="csH">${[1, 6, 12, 24].map(h => `<option value="${h}" ${h === csH ? 'selected' : ''}>${h} h</option>`).join('')}</select><button class="btn p" data-cs="lancer" ${ai.saved ? '' : 'disabled'}>Lancer la formation</button>`}</div></div>
+    ${!R || !on ? `<p class="note" style="margin-top:8px">${ai.saved ? `Avec ${esc(ai.model || ai.provName())}${cloud ? ' (en ligne : chaque situation est un appel facturé par le fournisseur, et seuls les logs d’exemple livrés sont utilisés)' : ' (sur ce poste : la machine travaille en continu, à brancher sur secteur)'}.` : 'Choisissez d’abord une IA dans Paramètres › Intelligence artificielle.'} Les vrais logs passent toujours avant : la formation attend dès qu’il y a du travail ou qu’un technicien écrit à l’assistant.</p>` : ''}
+    ${on ? `<div style="height:8px;border-radius:4px;background:var(--line2);overflow:hidden;margin-top:12px"><div style="height:100%;width:${Math.round((1 - left / dur) * 100)}%;background:var(--acc)"></div></div>` : ''}
+    ${R && R.lastErr ? `<p class="note" style="color:var(--crit)">Dernière erreur de l’IA : ${esc(R.lastErr)}</p>` : ''}${csMsg ? `<p class="note" style="color:var(--crit)">${esc(csMsg)}</p>` : ''}
+    ${R ? `<div style="display:flex;gap:28px;flex-wrap:wrap;margin-top:14px"><div><b style="font-size:22px">${R.n}</b><div class="note">situations jouées</div></div><div><b style="font-size:22px">${pc(R.n ? R.ok / R.n : null)}</b><div class="note">bonnes réponses</div></div><div><b style="font-size:22px">${R.acquis}</b><div class="note">acquises (réussies 3 fois de suite)</div></div><div><b style="font-size:22px">${R.revient}</b><div class="note">ratées, qui vont revenir</div></div></div>${chart}` : ''}</section>
+  ${R ? `<section class="panel" style="margin-top:16px"><h2>Par situation</h2><table class="stack"><thead><tr><th>Situation</th><th class="num">Jouées</th><th class="num">Bonnes réponses</th></tr></thead><tbody>${Object.keys(K).filter(k => R.kinds[k]).map(k => `<tr><td data-l="Situation">${esc(K[k])}</td><td data-l="Jouées" class="num">${R.kinds[k].n}</td><td data-l="Bonnes" class="num">${pc(R.kinds[k].ok / R.kinds[k].n)}</td></tr>`).join('') || '<tr><td colspan="3" class="note">Rien encore.</td></tr>'}</tbody></table></section>
+  <section class="panel" style="margin-top:16px"><h2>Examens de contrôle</h2><p class="note">Toutes les 2 h, sur 24 logs jamais travaillés au centre : c’est ce qui montre si l’IA progresse vraiment.</p>${R.exams.length ? `<table class="stack"><thead><tr><th>Heure</th><th class="num">Bon niveau</th><th class="num">Notes justes</th><th class="num">Écart moyen</th></tr></thead><tbody>${R.exams.map(x => `<tr><td data-l="Heure">${new Date(x.at).toLocaleString('fr-FR', {weekday: 'short', hour: '2-digit', minute: '2-digit'})}${x.why ? ' · ' + esc(x.why) : ''}</td><td data-l="Bon niveau" class="num">${pc(x.niveau)}</td><td data-l="Justes" class="num">${pc(x.justes)}</td><td data-l="Écart" class="num">${x.ecart ?? '—'}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Le premier examen passe au départ.</p>'}</section>
+  <section class="panel" style="margin-top:16px"><h2>Dernières situations</h2>${(R.feed || []).length ? `<table class="stack"><thead><tr><th>Situation</th><th>Log</th><th>Réponse de l’IA</th><th>Bonne réponse</th><th></th></tr></thead><tbody>${R.feed.slice(-25).reverse().map(f => `<tr><td data-l="Situation">${esc(K[f.kind] || f.kind)}${f.revient ? '<div class="note">revenue</div>' : ''}</td><td data-l="Log" class="mono" style="font-size:12px">${esc(f.q)}</td><td data-l="IA">${esc(f.ia)}</td><td data-l="Bonne réponse">${esc(f.bon)}</td><td>${f.ok ? '<span class="tag ok">juste</span>' : '<span class="tag crit">corrigée</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Rien encore.</p>'}</section>` : ''}`; };
+document.addEventListener('click', e => { const b = e.target.closest('[data-cs]'); if (!b) return; if (b.dataset.cs === 'arreter' && !confirm('Arrêter la formation ? Ce qu’elle a déjà appris est gardé.')) return; b.disabled = true; csDo(b.dataset.cs); });
+document.addEventListener('change', e => { if (e.target.id === 'csH') csH = +e.target.value || 12; });
+// Bouton « Ouvrir l'incident » d'une réponse de l'assistant : page Incidents sans filtre, fiche ouverte.
+document.addEventListener('click', e => { const b = e.target.closest('[data-incopen]'); if (!b) return; const key = b.dataset.incopen;
+  incFilter = ''; incTab = 'cours'; if (location.hash !== '#incidents') location.hash = '#incidents'; else render();
+  setTimeout(() => { if (incidents().some(x => x.key === key)) openInc(key); else alertMsg('Cet incident n’est plus ouvert dans la console.'); }, 120); });
 function openAi(id) { extMsg = ''; const p = AIP.find(x => x.id === id);
   $('#drawer').dataset.key = ''; $('#drawer').classList.add('pop', 'open'); $('#veil').classList.add('on');
   xw = {id, step: ai.prov === id ? 'sum' : 0, log: [], ai: true}; xRender(); $('#dClose').focus(); }
@@ -1158,6 +1247,7 @@ document.addEventListener('change', e => { if (!xw || !xw.ai || !e.target.closes
 document.addEventListener('input', e => { if (xw && xw.ai && e.target.dataset.kmap && e.target.closest('#drawer')) { XS[xw.id][e.target.dataset.kmap][e.target.dataset.mk] = e.target.value; xOk(); } });
 function aiSave() { const p = AIP.find(x => x.id === xw.id), s = XS[xw.id];
   ai.prov = p.id; ai.mode = s.mode; ai.model = s.model; ai.url = s.mode === 'local' ? s.url : ''; ai.allowed = s.mode === 'local' ? [] : Object.keys(s.auth).filter(id => s.auth[id].trim()); ai.saved = true; aiPersist();
+  if (LIVEMODE && ai.mode === 'local') refPost({op: 'formation-etat'}).then(j => { FM = j; if (!(j.profils || {})[fmKey()]) fmStart(); }).catch(() => {});
   if (LIVEMODE && REFD.queue) setTimeout(() => refClassify(true), 1000); }
 // --- détail d'incident
 function openInc(key) {
@@ -1588,7 +1678,7 @@ function chatRender() { const el = $('#chat'); if (!CH.open) { el.classList.remo
     <button class="ib" data-chat="new" aria-label="Nouvelle conversation" title="Nouvelle conversation">${CHI.plus}</button>${CH.cur ? `<button class="ib" data-chat="del" aria-label="Supprimer cette conversation" title="Supprimer cette conversation">${CHI.trash}</button>` : ''}<button class="ib" data-chat="close" aria-label="Fermer" title="Fermer (Échap)">${CHI.close}</button></header>
   <div class="chat-msgs" id="chatMsgs" aria-live="polite">${!live ? '<p class="note">L’assistant répond sur les données réelles du récepteur : ouvrez la console depuis SysLens.</p>' : !ai.saved ? '<p class="note">Aucune IA trouvée : lancez Ollama sur ce poste (l’app Ollama, ou <code>ollama serve</code>), puis rouvrez l’assistant. Ou choisissez une IA dans Paramètres › Intelligence artificielle.</p>' : ''}
     ${!msgs.length && ok ? `<div class="chat-empty"><span class="big">${CHI.ai.replace('width="20" height="20"', 'width="30" height="30"')}</span><p style="margin:0">Une question sur tes incidents, tes logs ou tes équipements ?</p><div class="chips">${['Qu’est-ce que je traite en premier ?', 'Tous les équipements sont en ligne ?', 'Résume les dernières 24 h'].map(x => `<button type="button" data-chips="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>` : ''}
-    ${msgs.map((m, i) => `<div class="msg ${m.role === 'user' ? 'u' : 'a'}${m.error ? ' err' : ''}${m.action && !m.done ? ' wide' : ''}">${m.role === 'user' ? `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>` : md(m.content)}${m.action === 'telegram' && !m.done ? tgForm(i) : ''}${m.role === 'assistant' && m.model ? `<div class="meta">${esc(m.model)}</div>` : ''}</div>`).join('')}
+    ${msgs.map((m, i) => `<div class="msg ${m.role === 'user' ? 'u' : 'a'}${m.error ? ' err' : ''}${m.action && !m.done ? ' wide' : ''}">${m.role === 'user' ? `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>` : md(m.content)}${m.action === 'telegram' && !m.done ? tgForm(i) : ''}${(m.refs || []).length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${m.refs.map(r => `<button class="btn" data-incopen="${esc(r.key)}">${esc(r.label)}</button>`).join('')}</div>` : ''}${m.role === 'assistant' && m.model ? `<div class="meta">${esc(m.model)}</div>` : ''}</div>`).join('')}
     ${CH.busy ? `<div class="gen" role="status" aria-label="L’assistant écrit">${[...'Génération'].map((c, k) => `<i aria-hidden="true" style="animation-delay:${k / 10}s">${c}</i>`).join('')}<div class="ring"></div></div>` : ''}${CH.err ? `<p class="err">${esc(CH.err)}</p>` : ''}</div>
   <form id="chatForm"><textarea id="chatIn" rows="1" placeholder="Écris ta question…" aria-label="Ta question" ${ok && !CH.busy ? '' : 'disabled'}></textarea><button class="send" aria-label="Envoyer" ${ok && !CH.busy ? '' : 'disabled'}>${CHI.send}</button></form>
   <p class="foot">${ok ? esc(ai.model) + (cloud ? ' · en ligne, adresses masquées' : ' · sur ce poste') + ' · ' : ''}${ME ? 'Visible par toi seul' : ''}</p>`;
@@ -1631,6 +1721,12 @@ async function aiAutoDetect() { if (!LIVEMODE || ai.saved) return;
   try { const ms = ((await aiCall({op: 'models', provider: 'ollama', url: 'http://localhost:11434'})).models || []).filter(m => !/embed/i.test(m)); if (!ms.length) return;
     const pick = ms.find(m => /^qwen3:8b/.test(m)) || ms.find(m => /qwen|llama|mistral|gemma/i.test(m)) || ms[0];
     Object.assign(ai, {prov: 'ollama', mode: 'local', url: 'http://localhost:11434', model: pick, saved: true, auto: true}); aiPersist(); if (XS.ollama) Object.assign(XS.ollama, {mode: 'local', url: 'http://localhost:11434', model: pick}); if (CH.open) chatRender(); render(); } catch (e) {} }
+const notifCall = async body => { const r = await fetch('/api/notif', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok || j.error) throw new Error(j.error || 'Récepteur injoignable'); return j; };
+let NFS = null;
+async function notifStatus() { if (!LIVEMODE) return; try { const r = NFS = await notifCall({op: 'status'});
+  for (const id of ['teams', 'whatsapp']) { const x = EXT.find(z => z.id === id), st = r[id]; if (!x) continue;
+    if (st.on) { Object.assign(XS[id], id === 'teams' ? {canal: st.canal, lv: st.lv} : {phoneId: st.phoneId, template: st.template, lang: st.lang, lv: st.lv}, {tested: true, saved: true}); x.st = 'on'; } else if (x.st === 'on') x.st = 'config'; }
+  render(); } catch (e) {} }
 async function tgStatus() { if (!LIVEMODE) return; try { const r = await tgCall({op: 'status'}); const x = EXT.find(z => z.id === 'telegram'); TGS = r;
   if (r.on && r.token) { Object.assign(XS.telegram, {chat: r.chat, chatName: r.chatName, lv: r.lv, tested: true, saved: true}); if (x) x.st = 'on'; } else if (x && x.st === 'on') x.st = 'off'; render(); } catch (e) {} }
 let TGS = null;
@@ -1662,7 +1758,7 @@ document.addEventListener('click', async e => { const t = e.target.closest('#doc
     else { const inp = document.querySelector(`[data-devm="${CSS.escape(t.dataset.devmset)}"]`); await docCall({op: 'modele', dev: t.dataset.devmset, model: inp ? inp.value.trim() : ''}); }
   } catch (err) { docMsg = err.message; if (t.dataset.devmset) alertMsg(err.message); } docLoad(); render(); });
 const alertMsg = m => { const n = document.createElement('div'); n.className = 'note'; n.setAttribute('role', 'alert'); n.textContent = m; n.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--bg2,#222);padding:8px 14px;border-radius:8px;z-index:99'; document.body.append(n); setTimeout(() => n.remove(), 4000); };
-authInit().then(ok => { if (!ok) return; aiAutoDetect(); tgStatus(); setInterval(tgStatus, 30e3); docLoad();
+authInit().then(ok => { if (!ok) return; aiAutoDetect(); tgStatus(); setInterval(tgStatus, 30e3); notifStatus(); setInterval(notifStatus, 60e3); docLoad();
 if (LIVEMODE) { incLoad(); setInterval(incLoad, 30e3); refLoad(); setInterval(refLoad, 30e3); setInterval(() => refClassify(true), 10 * 60e3);
   updLoad(); setInterval(updLoad, 60e3); document.title = 'SysLens — Parc test (réel)'; if (!ME) $('#meSub').textContent = 'Banc de test'; $('#demoNote').textContent = 'Parc test : vrais logs du récepteur · autres clients fictifs'; refLoad().finally(() => { livePoll(); setInterval(livePoll, 3000); }); }
 render(); });

@@ -10,7 +10,7 @@ node -e 'const n=require("./nouveautes.json");if(!n[0]||n[0].version!==process.a
 node -e 'const f="package.json",fs=require("fs"),p=JSON.parse(fs.readFileSync(f));p.version=process.argv[1];fs.writeFileSync(f,JSON.stringify(p,null,2)+"\n")' "$V"
 npm test
 node syslens.js --selftest
-shasum -a 256 syslens.js console.html referentiel.json package.json nouveautes.json > SHA256SUMS
+shasum -a 256 syslens.js console.html referentiel.json formation.json package.json nouveautes.json > SHA256SUMS
 git add -A && { git diff --cached --quiet || git commit -m "v$V"; } && git tag "v$V" && git push && git push origin "v$V"
 gh release create "v$V" --title "v$V" --notes "$NOTES"
 echo "v$V publiée."

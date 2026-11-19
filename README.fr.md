@@ -52,6 +52,8 @@ Le port 514 est privilégié sur Linux : lancer avec les droits nécessaires, ou
 | `RAW_GZIP` | `0` pour écrire le brut sans compression | compressé |
 | `SYSLENS_AUTOUPDATE` | `0` pour couper la mise à jour automatique | activée |
 | `SYSLENS_REPO` | Dépôt dont les releases sont suivies | `Nesaris/SysLens` |
+| `SYSLENS_TEAMS_WEBHOOK` | Adresse du flux Teams, si le trousseau macOS n'est pas disponible | — |
+| `SYSLENS_WHATSAPP_TOKEN` | Jeton WhatsApp Business, si le trousseau macOS n'est pas disponible | — |
 | `SYSLENS_DOCS` | `0` pour couper la recherche de la documentation des modèles | activée |
 
 Mettez toujours `ALLOW` sur un réseau partagé : sans lui, n'importe quelle machine peut injecter des logs.
@@ -94,6 +96,13 @@ Les types à qualifier sont envoyés à l'IA choisie dans la console, par lots d
 - **Entraînement au repos** (activé par défaut avec le classement en continu) : quand il n'y a rien à classer, l'IA s'exerce par séances de 6 sur des types dont la note est connue : types validés par un technicien, types reconnus par le référentiel. La réponse lui est cachée (l'exercice n'est ni dans ses exemples ni dans son barème). Ses erreurs sont gardées et lui sont remontrées comme exemples corrigés quand un type à noter leur ressemble ; son biais sur les 300 derniers exercices lui est rappelé dans la consigne, par niveau dès 7 points (une IA surnote souvent la routine et sous-note le grave, ce qui s'annule dans la moyenne), sinon en tout dès 5 points. Une erreur est reposée 1 h plus tard, une réussite 7 jours plus tard. Elle relit aussi une fois ses propositions de plus de 6 h : si elle change d'avis, la proposition est marquée « avis instable », sans que sa note change. Le repos : rien à classer, aucune recherche de documentation, personne en train d'écrire à l'assistant depuis 3 min, charge de la machine sous 70 %. Une séance toutes les 5 min au plus, 30 min de pause après une erreur de l'IA. Les résultats de l'entraînement ne comptent pas pour l'autonomie.
 - **Classement en continu** : avec une IA locale (Ollama sur ce poste), le serveur classe les nouveaux types toutes les 2 minutes, même console fermée. Une IA en ligne ne peut pas servir ici, puisque sa clé ne quitte pas le navigateur.
 - Avec Ollama, SysLens coupe la phase de réflexion des modèles qui en ont une (qwen3…) impose un schéma JSON, borne la longueur de la réponse et garde le modèle chargé 30 minutes : un lot de 8 types prend environ 35 à 40 s avec qwen3:8b sur un Mac M5 de 16 Go. Prévoir 8 Go de mémoire libre pour un modèle 8B : en dessous, le système passe sur le disque et un lot peut prendre plusieurs minutes.
+
+### Formation des IA et centre de formation
+
+`formation.json` livre un corpus de logs Zyxel d'exemple (aucune donnée client), les compétences de l'IA et les règles que SysLens applique quel que soit le modèle.
+
+- **Formation** (Paramètres › Intelligence artificielle) : toute IA passe le même examen de 24 logs dont la bonne note vient du référentiel ; la règle qui décrit chaque log lui est cachée. La fiche (prête, utilisable, pas adaptée) règle ensuite ce modèle seulement : lots de 12 types, ou de 3 si ses réponses ne sont pas toujours lisibles, rappel de son biais par niveau, erreurs remontrées comme exemples corrigés. Elle se lance seule à l'ajout d'une IA locale.
+- **Centre de formation** (Paramètres) : bac à sable de 1 à 48 h (12 h par défaut), sans effet sur les vrais incidents. Sept situations, corrigées d'après le référentiel : noter un log, ne pas surnoter une fausse alerte, repérer et corriger une note fausse, trouver la cause et choisir l'action (choix multiples), choisir l'incident urgent parmi cinq sur un site qui déborde, résister à une consigne glissée dans un log. Une erreur revient 10 min, 40 min, 2 h, 6 h puis 24 h plus tard ; chaque erreur devient un exemple corrigé pour ce modèle. Un examen de contrôle sur les 24 logs de la formation, jamais travaillés au centre, passe au départ, toutes les 2 h et à la fin. Avec une IA locale, les types réels du site reconnus par le référentiel s'ajoutent au corpus ; avec une IA en ligne, seul le corpus d'exemple sert (chaque situation est un appel facturé). Les vrais logs et l'assistant passent avant ; la formation reprend seule après un redémarrage avec une IA locale.
 
 ### Documentation des modèles
 

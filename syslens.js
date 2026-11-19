@@ -229,6 +229,9 @@ function recover(ev, replay) { const r = REF.find(x => x.k === ev.k), tk = portT
 const IP_FILE = path.join(DIR, 'adresses.json'), hostIp = new Map(); let ipDirty = false;
 const QUIET_MS = Math.max(0.02, +process.env.SYSLENS_QUIET_MIN || 10) * 60e3;   // silence au-delà de laquelle on pinge
 try { for (const [h, v] of Object.entries(JSON.parse(fs.readFileSync(IP_FILE, 'utf8')))) hostIp.set(h, v); } catch (e) {}
+// Réseaux joignables en direct depuis ce poste : ceux de ses cartes réseau, plus SYSLENS_LOCAL_NETS (ex. réseaux routés par un VPN, « 192.168.1.0/24,10.20.0.0/16 »).
+const LOCAL_NETS = String(process.env.SYSLENS_LOCAL_NETS || '').split(',').map(x => x.trim()).filter(x => /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(x)).map(x => { const [a, b] = x.split('/'); return [ip2n(a), +b]; });
+const localNet = ip => LOCAL_NETS.some(([n, b]) => b === 0 || Math.floor(ip2n(ip) / 2 ** (32 - b)) === Math.floor(n / 2 ** (32 - b))) || Object.values(os.networkInterfaces()).flat().some(i => { if (!i || i.family !== 'IPv4' && i.family !== 4 || i.internal || !i.cidr) return false; const b = +i.cidr.split('/')[1]; return b > 0 && Math.floor(ip2n(ip) / 2 ** (32 - b)) === Math.floor(ip2n(i.address) / 2 ** (32 - b)); });
 const PRIV = ip => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)\d{1,3}\.\d{1,3}(\.\d{1,3})?$/.test(ip) && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
 function ping(ip) { return new Promise(ok => { if (!PRIV(ip)) return ok({ ok: false, ms: null });
   const a = process.platform === 'win32' ? ['-n', '1', '-w', '2000', ip] : process.platform === 'darwin' ? ['-c', '1', '-t', '2', ip] : ['-c', '1', '-W', '2', ip];
@@ -238,8 +241,12 @@ async function checkQuiet() {
   for (const d of [...devices.values()].slice(0, 500)) { const fam = famOfDev(d);
     if (fam === 'pare-feu' || now - (d.last || 0) < QUIET_MS) { d.ping = undefined; continue; }
     const learned = d.host && hostIp.get(d.host), ip = learned ? learned.ip : PRIV(d.from) && byFrom.get(d.from) === 1 ? d.from : null;
-    if (!ip) { d.ping = { ip: null, ok: false, t: now }; continue; }
-    const r = await ping(ip), was = d.ping && d.ping.ip ? d.ping.ok : null; d.ping = { ip, ok: r.ok, ms: r.ms, t: Date.now() };
+    // Derrière un pare-feu (ses logs sortent par la même adresse, NAT) et hors des réseaux de ce poste : le ping ne peut pas l'atteindre.
+    // On se fie alors au pare-feu qui le relie : s'il parle, le switch ou la borne est joignable ; s'il se tait, c'est le pare-feu qu'on signale.
+    const fw = [...devices.values()].find(x => x !== d && x.from === d.from && famOfDev(x) === 'pare-feu'), viaFw = () => ({ ip, ok: Date.now() - (fw.last || 0) < 15 * 60e3, ms: null, via: fw.host || fw.from, t: Date.now() });
+    if (!ip) { d.ping = fw ? viaFw() : { ip: null, ok: false, t: now }; continue; }
+    const r = await ping(ip); if (!r.ok && fw && !localNet(ip)) { d.ping = viaFw(); continue; }
+    const was = d.ping && d.ping.ip ? d.ping.ok : null; d.ping = { ip, ok: r.ok, ms: r.ms, t: Date.now() };
     if (was === null ? !r.ok && Date.now() - d.last < 6 * 3600e3 : was !== r.ok) alertPing(d, r.ok); }
   if (ipDirty) { ipDirty = false; try { fs.writeFileSync(IP_FILE, JSON.stringify(Object.fromEntries(hostIp))); } catch (e) {} } }
 if (!SELFTEST) { setInterval(() => checkQuiet().catch(() => {}), Math.min(60e3, Math.max(2e3, QUIET_MS))).unref(); setTimeout(() => checkQuiet().catch(() => {}), 3000).unref(); }   // premier contrôle dès le démarrage
@@ -1349,7 +1356,7 @@ function chatContext(cloud) {
   const inc = [...incidents.values()].filter(I => now - I.last < 7 * 864e5).sort((a, b) => b.score - a.score || b.last - a.last).slice(0, 15).map((I, n) => { const st = incEtat[`cli-test|${I.host || I.from}|${I.k}|${isPublic(I.src) ? I.src : ''}`];
     return `- ${ref(I.k).sig || I.cat + ' : ' + mask(I.msg).slice(0, 80)} (${I.level}, ${I.score}/100) · équipement ${I.host || mask(I.from)} · ${I.count} log(s), dernier il y a ${h(I.last)} · ${I.status === 'résolu' || I.resolved ? 'revenu à la normale' : st ? (st.st === 'clos' ? 'clos par ' + (st.by || 'un technicien') : st.st) : 'ouvert'}${ref(I.k).act ? ' · à faire : ' + ref(I.k).act : ''}${n < 5 ? '\n  exemple : ' + mask(I.msg).slice(0, 140) : ''}`; });
   const devs = [...devices.values()].slice(0, 40).map(d => { const fw = famOfDev(d) === 'pare-feu', quiet = now - d.last >= (fw ? 15 : 30) * 60e3;
-    return `- ${d.host || mask(d.from)} (${famOfDev(d)}${d.product ? ' ' + d.product : ''}) : dernier log il y a ${h(d.last)}${d.ping ? d.ping.ok ? `, répond au ping (${d.ping.ms} ms) : en ligne` : d.ping.ip ? ', ne répond pas au ping : hors ligne' : ', pas d’adresse pour le ping : état inconnu' : quiet ? ' : silencieux, pas encore vérifié' : ' : en ligne'}`; });
+    return `- ${d.host || mask(d.from)} (${famOfDev(d)}${d.product ? ' ' + d.product : ''}) : dernier log il y a ${h(d.last)}${d.ping && d.ping.via ? d.ping.ok ? `, derrière le pare-feu ${d.ping.via} qui répond : en ligne (pas de ping direct possible depuis SysLens)` : `, derrière le pare-feu ${d.ping.via}, lui aussi silencieux : état inconnu` : d.ping ? d.ping.ok ? `, répond au ping (${d.ping.ms} ms) : en ligne` : d.ping.ip ? ', ne répond pas au ping : hors ligne' : ', pas d’adresse pour le ping : état inconnu' : quiet ? ' : silencieux, pas encore vérifié' : ' : en ligne'}`; });
   const c24 = [...counts.values()].filter(c => c.t >= now - 864e5), sum = k => c24.reduce((a, c) => a + (c[k] || 0), 0);
   const dv = [...devices.values()], on = dv.filter(d => now - d.last < (famOfDev(d) === 'pare-feu' ? 15 : 30) * 60e3 || (d.ping && d.ping.ok)).length;
   const open = [...incidents.values()].filter(I => now - I.last < 864e5 && !I.resolved).length;
@@ -1400,7 +1407,7 @@ function openList() { const now = Date.now(), out = [];
     out.push({ key, title: e.sig || (I.cat ? I.cat + ' : ' : '') + String(I.msg).slice(0, 80), level: I.level, score: I.score, dev: I.host || I.from, last: I.last, count: I.count, msg: String(I.msg).slice(0, 140), act: e.act || '', ack: !!(st && st.st === 'acquitté') }); }
   for (const d of devices.values()) { const fw = famOfDev(d) === 'pare-feu', id = d.host || d.from, key = 'silence|' + id, st = incEtat[key];
     if (now - d.last < (fw ? 15 : 30) * 60e3 || (d.ping && d.ping.ok) || (st && st.st === 'clos' && d.last <= st.t)) continue;
-    out.push({ key, title: 'Équipement silencieux', level: 'grave', score: 66, dev: id, last: d.last, count: 0, msg: `aucun log depuis ${Math.round((now - d.last) / 60e3)} min${d.ping && d.ping.ip ? `, ne répond pas au ping (${d.ping.ip})` : ''}`, act: 'Vérifier son alimentation, son câble et le lien qui le relie au réseau.', ack: !!(st && st.st === 'acquitté') }); }
+    out.push({ key, title: 'Équipement silencieux', level: 'grave', score: 66, dev: id, last: d.last, count: 0, msg: `aucun log depuis ${Math.round((now - d.last) / 60e3)} min${d.ping && d.ping.via ? `, son pare-feu ${d.ping.via} est aussi silencieux` : d.ping && d.ping.ip ? `, ne répond pas au ping (${d.ping.ip})` : ''}`, act: 'Vérifier son alimentation, son câble et le lien qui le relie au réseau.', ack: !!(st && st.st === 'acquitté') }); }
   return out.sort((a, b) => b.score - a.score || b.last - a.last); }
 const norm = t => String(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, ' ');
 function wantsPrio(t) { const x = norm(t); return x.length < 160 && /(par quoi|qu ?est ?ce que (je|j|on) (traite|fai[st]|commence|regarde)|quoi (traiter|faire|regarder) en (premier|priorite)|en premier|le plus urgent|plus important|priorit|a traiter|je commence par|on commence par)/.test(x) && !/(comment|pourquoi|c est quoi)/.test(x); }

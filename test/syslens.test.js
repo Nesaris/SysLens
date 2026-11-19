@@ -358,9 +358,19 @@ test('équipement calme : un switch qui se tait est pingé à l’adresse appris
   let d; for (let i = 0; i < 60; i++) { await attendre(250); d = (await requete(s.web, '/api/events?since=0')).json.devices; if (d.filter(x => x.ping).length >= 2) break; }
   const xmg = d.find(x => x.host === 'XMG1915'), gs = d.find(x => x.host === 'GS1920'), fw = d.find(x => x.host === 'usgflex50w');
   assert.deepEqual([xmg.ping.ip, xmg.ping.ok, xmg.ping.ms], ['192.168.1.34', true, 1.25], 'switch calme mais joignable');
-  assert.deepEqual([gs.ping.ip, gs.ping.ok], [null, false], 'pas d’adresse connue : on ne pinge rien');
+  assert.deepEqual([gs.ping.ip, gs.ping.ok, gs.ping.via], [null, true, 'usgflex50w'], 'pas d’adresse connue, mais ses logs sortent par le pare-feu qui parle : joignable via lui');
   assert.equal(fw.ping, undefined, 'un pare-feu parle en continu : jamais pingé');
   assert.equal(JSON.parse(fs.readFileSync(path.join(s.dossier, 'logs', 'adresses.json')))['XMG1915'].ip, '192.168.1.34');
+});
+
+test('équipement derrière un pare-feu : sans ping possible, on se fie au pare-feu qui le relie (pas de fausse alerte)', async () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'faux-ping-'));   // faux ping : rien ne répond (switch derrière le NAT du pare-feu)
+  fs.writeFileSync(path.join(bin, 'ping'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  const s = await demarrer({ PATH: bin + path.delimiter + process.env.PATH, SYSLENS_QUIET_MIN: '0.03' });
+  await envoyer(s.syslog, [cef('DHCP', 6, 'msg=DHCP server assigned 192.168.77.34 to XMG1915(70:49:A2:21:D0:6D) cat=DHCP ZYlevel=info'), '<135> 2026-11-19T13:58:38Z XMG1915 interface: Port 2 link down']);
+  let d; for (let i = 0; i < 60; i++) { await attendre(250); d = (await requete(s.web, '/api/events?since=0')).json.devices; const x = d.find(y => y.host === 'XMG1915'); if (x && x.ping) break; }
+  const xmg = d.find(x => x.host === 'XMG1915');
+  assert.deepEqual([xmg.ping.ip, xmg.ping.ok, xmg.ping.via], ['192.168.77.34', true, 'usgflex50w'], 'ping impossible, pare-feu vivant : joignable via lui');
 });
 
 test('comptes et assistant : premier compte local, connexion obligatoire, conversations isolées par compte', async () => {
@@ -460,7 +470,7 @@ test('alertes Telegram : rafale regroupée, lien instable, switch renommé injoi
     rr.writeHead(200, json); if (m === 'getMe') return rr.end(JSON.stringify({ ok: true, result: { username: 'essai_bot' } })); if (m === 'sendMessage') recus.push(c.text); rr.end(JSON.stringify({ ok: true, result: {} })); }); });
   await new Promise(ok => tgFake.listen(0, '127.0.0.1', ok)); after(() => tgFake.close());
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'faux-ping-')); fs.writeFileSync(path.join(bin, 'ping'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
-  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1', PATH: bin + path.delimiter + process.env.PATH, SYSLENS_QUIET_MIN: '0.03' });
+  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1', PATH: bin + path.delimiter + process.env.PATH, SYSLENS_QUIET_MIN: '0.03', SYSLENS_LOCAL_NETS: '192.168.1.0/24' });
   await requete(s.web, '/api/tg', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', lv: ['critique', 'grave'] }) });
   const fin = async n => { for (let i = 0; i < 80 && recus.length < n; i++) await attendre(100); };
   await envoyer(s.syslog, Array.from({ length: 30 }, (_, i) => cef('IDP', 1, `src=198.51.100.${i + 1} dst=192.168.1.10 msg=From WAN to LAN1 [type=Web Attack] SQL injection, Action: drop, Severity: high cat=IDP ZYlevel=alert`)));

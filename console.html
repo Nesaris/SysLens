@@ -585,7 +585,7 @@ function incidents() {
     out.push({key, list, last, sc, lv, auto: back, ...incStatus(key, back, up[last.dev + '|' + last.k], last.t)});
   }
   for (const d of devices) { const lim = SILENCE[d.fam]; if (d.last > lim && !pingOk(d)) {
-    const key = 'silence|' + d.id, p = d.ping, why = p && p.ip ? ` · ne répond pas au ping (${p.ip})` : p ? ' · pas d’adresse connue pour le pinger' : '';
+    const key = 'silence|' + d.id, p = d.ping, why = p && p.via ? ` · son pare-feu ${p.via} est aussi silencieux` : p && p.ip ? ` · ne répond pas au ping (${p.ip})` : p ? ' · pas d’adresse connue pour le pinger' : '';
     const sc = {s: 66, parts: [['Règle : équipement silencieux (seuil ' + lim + ' min)' + why, 66]], floor: 0};
     out.push({key, list: [], last: {t: NOW - d.last * 60e3, dev: d.id, cli: d.cli, fam: d.fam, k: 'silence', msg: 'Aucun log depuis ' + d.last + ' min' + why, src: ''}, sc, lv: 'grave', ...incStatus(key, false, 0, NOW - d.last * 60e3)}); } }
   return out.sort((a,b) => b.sc.s - a.sc.s);
@@ -610,7 +610,7 @@ function incRows(list, compact) {
 let expInc = null;
 const incName = i => i.last.k === 'silence' ? 'Équipement silencieux' : (CAT[i.last.k] || {}).sig || i.last.k;
 function incLogs(i) {
-  if (!i.list.length) { const d = devices.find(x => x.id === i.last.dev); return `<p class="note" style="margin:0">${esc(i.last.msg)}.${d && d.ping && d.ping.ip ? ` Dernier ping vers ${esc(d.ping.ip)} : pas de réponse.` : ''} Vérifier l’alimentation et le câble de l’équipement, puis le lien qui le relie au réseau.</p>`; }
+  if (!i.list.length) { const d = devices.find(x => x.id === i.last.dev); return `<p class="note" style="margin:0">${esc(i.last.msg)}.${d && d.ping && d.ping.ip && !d.ping.via ? ` Dernier ping vers ${esc(d.ping.ip)} : pas de réponse.` : ''} Vérifier l’alimentation et le câble de l’équipement, puis le lien qui le relie au réseau.</p>`; }
   const ls = i.list.slice().sort((a, b) => b.t - a.t), c = CAT[i.last.k] || {};
   return `${c.act ? `<p style="margin:0 0 10px"><b>À faire :</b> ${esc(c.act)}</p>` : ''}<table class="stack logs-in"><tbody>${ls.slice(0, 25).map(e => `<tr><td data-l="Heure" class="mono">${hhmm(e.t)}</td><td data-l="Score">${scChip(scoreOf(e, 1).s)}</td><td data-l="Log">${esc(e.msg)}${e.src || e.dst ? `<br><span class="note mono">${esc(e.src || '')}${e.dst ? ' → ' + esc(e.dst) : ''}${e.user ? ' · ' + esc(e.user) : ''}</span>` : ''}</td></tr>`).join('')}</tbody></table>${ls.length > 25 ? `<p class="note">… et ${ls.length - 25} autres logs.</p>` : ''}`;
 }

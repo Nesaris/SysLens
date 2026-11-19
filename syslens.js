@@ -25,6 +25,7 @@ function incApi(b, me) {
   if (!['ouvert', 'acquitté', 'clos'].includes(b.st)) throw new Error('Statut inconnu.');
   const snap = b.snap && typeof b.snap === 'object' ? Object.fromEntries(['sig', 'cli', 'cliName', 'dev', 'k', 's', 'lv', 'n', 'last'].filter(k => b.snap[k] !== undefined).map(k => [k, typeof b.snap[k] === 'number' ? b.snap[k] : String(b.snap[k]).slice(0, 200)])) : undefined;
   if (b.st === 'ouvert') delete incEtat[b.key]; else incEtat[b.key] = { st: b.st, t: Date.now(), ...(me ? { by: me.name } : {}), ...(snap ? { snap } : {}) };
+  if (b.st === 'clos') setImmediate(() => odooClose(b.key, 'Incident clos dans SysLens' + (me ? ' par ' + me.name : '') + '.').catch(() => {}));
   const lim = Date.now() - INC_KEEP; for (const [k, v] of Object.entries(incEtat)) if (v.t < lim) delete incEtat[k];
   const keys = Object.keys(incEtat); if (keys.length > 20000) keys.sort((a, c) => incEtat[a].t - incEtat[c].t).slice(0, keys.length - 20000).forEach(k => delete incEtat[k]);
   try { fs.writeFileSync(INC_FILE + '.tmp', JSON.stringify(incEtat)); fs.renameSync(INC_FILE + '.tmp', INC_FILE); } catch (e) { throw new Error('Écriture impossible : ' + e.message); }
@@ -42,11 +43,20 @@ function tpl(s, ev) { let t = String(s || '');
     .replace(/\b0x[0-9a-f]+\b/gi, '#').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 100); }
 const catT = c => String(c || '?').replace(/\d+/g, '#').slice(0, 60);
 const famOfDev = d => d.product ? famOfProduct(d.product) : /^(GS|XGS|XMG|XS|MS|MG)\d|^(NWA|WAX|WAC|WBE|NAP)/i.test(d.host || '') ? famOfProduct(d.host) : d.kind || 'inconnu';
-const famOfProduct = p => /^(GS|XGS|XMG|XS|MS|MG)\d/i.test(p || '') ? 'switch' : /^(NWA|WAX|WAC|WBE|NAP)/i.test(p || '') ? 'borne Wi-Fi' : p ? 'pare-feu' : 'inconnu';
+// Le modèle peut être précédé d'un préfixe dans le nom (« TEST-GS1350 », « SW-GS1920 ») ; un nom qu'on ne reconnaît pas n'est pas un pare-feu.
+const famOfProduct = p => { const x = String(p || ''); return /(^|[^a-z0-9])(GS|XGS|XMG|XS|MS|MG)\d/i.test(x) ? 'switch' : /(^|[^a-z0-9])(NWA|WAX|WAC|WBE|NAP)\d/i.test(x) ? 'borne Wi-Fi' : /(USG|ATP|ZYWALL|FLEX|VPN\d|SCR\s?\d)/i.test(x) ? 'pare-feu' : x ? 'équipement' : 'inconnu'; };
 // Modèle saisi à la main pour un équipement qui ne le donne pas dans ses logs : logs/modeles.json (clé d'équipement → modèle).
 const MOD_FILE = path.join(DIR, 'modeles.json'); let devModel = {};
 const loadModels = () => { try { devModel = JSON.parse(fs.readFileSync(MOD_FILE, 'utf8')) || {}; } catch (e) { devModel = {}; } }; loadModels();
 const saveModels = () => { try { fs.writeFileSync(MOD_FILE, JSON.stringify(devModel, null, 1)); } catch (e) {} for (const w of Object.values(cluster.workers || {})) try { w.send({ t: 'modeles' }); } catch (e) {} };
+// Adresses d'où les techniciens administrent les équipements (bureau, VPN de l'équipe) : logs/confiance.json ou SYSLENS_ADMIN_TRUST.
+// Une connexion admin depuis l'une d'elles, ou depuis le réseau local, n'est pas un incident : un simple message « ⚠️ Connexion admin ».
+// Depuis une adresse publique inconnue, c'est critique : quelqu'un d'extérieur a les identifiants et l'accès admin est ouvert sur Internet.
+const TRUST_FILE = path.join(DIR, 'confiance.json'); let trust = [];
+const cidrIn = (ip, c) => { const [n, b] = String(c).split('/'), m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/, a = m.exec(ip), x = m.exec(n); if (!a || !x) return false; const bits = b === undefined ? 32 : +b, toI = v => ((+v[1] << 24) >>> 0) + (+v[2] << 16) + (+v[3] << 8) + +v[4];
+  return bits === 0 || ((toI(a) ^ toI(x)) >>> (32 - bits)) === 0; };
+const loadTrust = () => { let f = []; try { f = JSON.parse(fs.readFileSync(TRUST_FILE, 'utf8')).admin || []; } catch (e) {} trust = [...String(process.env.SYSLENS_ADMIN_TRUST || '').split(/[\s,]+/).filter(Boolean), ...f].filter(c => /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(c)); }; loadTrust();
+const trusted = ip => !!ip && trust.some(c => cidrIn(ip, c));
 const shortHash = s => crypto.createHash('sha1').update(s).digest('hex').slice(0, 8);
 const isPublic = ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !/^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|0\.)/.test(ip);
 
@@ -95,7 +105,8 @@ const refTxt = ev => (ev.fmt === 'syslog' && ev.cat ? ev.cat + ': ' : '') + ev.m
 function score(ev, ctx = true) {
   const txt = refTxt(ev);
   const tk0 = catT(ev.cat) + ' | ' + tpl(ev.msg || ev.name, ev), L = learned.types[tk0], parts = [];
-  const r = L && L.st === 'valide' ? { k: 'appris:' + shortHash(tk0), base: L.base, floor: L.floor || 0, telemetry: L.base < 30, learned: true } : EVAL ? null : matchRef(ev, txt);
+  let r = L && L.st === 'valide' ? { k: 'appris:' + shortHash(tk0), base: L.base, floor: L.floor || 0, telemetry: L.base < 30, learned: true } : EVAL ? null : matchRef(ev, txt);
+  if (r && r.k === 'port-down' && /USG|ATP|FLEX|ZyWALL|VPN/i.test(ev.product || '')) r = REF.find(x => x.k === 'link-down') || r;   // port d'un pare-feu : un vrai lien
   ev.k = r ? r.k : 'inconnu'; ev.ref = !!(r && !r.telemetry && !r.generic); ev.rec = !!(r && r.recovers);
   ev.tk = r && !r.generic && !r.learned ? catT(ev.cat) + ' | [' + r.k + ']' : tk0;
   ev.cov = !r ? 'qualifier' : r.learned ? 'appris' : r.generic ? (ev.sev <= 3 ? 'qualifier' : 'categorie') : 'precis';
@@ -105,20 +116,22 @@ function score(ev, ctx = true) {
   else { s = fixed != null ? fixed : r.base; parts.push([(r.learned ? 'type appris (validé)' : 'référentiel ' + r.k) + (fixed != null ? ', note corrigée' : ''), s]); }
   const add = (d, l) => { s += d; parts.push([l, d]); };
   if (ev.ref && /USG|ATP|FLEX|ZyWALL|VPN/i.test(ev.product)) add(10, 'pare-feu de tête');
-  if (r && r.admin && isPublic(ev.src)) add(15, 'IP publique');
+  const adminLocal = r && r.k === 'admin-ok' && ev.src && (trusted(ev.src) || !isPublic(ev.src));
+  if (r && r.admin && isPublic(ev.src) && !trusted(ev.src)) add(15, 'IP publique');
   if (ctx) {
     const key = ev.k + '|' + ev.dev + '|' + ev.src, now = ev.t; let arr = win.get(key); if (!arr) win.set(key, arr = []);
     while (arr.length && now - arr[0] >= 300e3) arr.shift(); arr.push(now); if (arr.length > 250) arr.splice(0, arr.length - 250);
     const n = arr.length, rep = n >= 200 ? 20 : n >= 50 ? 15 : n >= 10 ? 10 : n >= 3 ? 5 : 0; if (rep && ev.ref) add(rep, n + ' en 5 min');
-    const hr = new Date(now).getHours(); if (r && r.admin && (hr < 8 || hr >= 19)) add(10, 'hors horaires');
+    const hr = new Date(now).getHours(); if (r && r.admin && !adminLocal && (hr < 8 || hr >= 19)) add(10, 'hors horaires');
     if (r && r.brute && n >= r.brute && s < 60) add(60 - s, 'force brute : ' + n + ' échecs en 5 min');
   }
-  if (r && r.pubFloor && isPublic(ev.src) && s < r.pubFloor) add(r.pubFloor - s, 'admin depuis le WAN : critique');
+  if (r && r.pubFloor && isPublic(ev.src) && !trusted(ev.src) && s < r.pubFloor) add(r.pubFloor - s, 'admin depuis une adresse publique inconnue : critique');
+  if (adminLocal && s > 20) { add(20 - s, trusted(ev.src) ? 'adresse de confiance : simple message' : 'réseau local : simple message'); ev.notice = 'admin'; }
   // Un type pas encore qualifié ne réveille pas l'astreinte : le niveau annoncé par l'équipement n'est pas assez fiable.
   if ((!r || r.generic) && s > 75) add(75 - s, 'type pas encore qualifié : grave au plus');
   // Proposition de l'IA en attente : elle peut monter la note (grave au plus), jamais la baisser avant validation.
   if ((!r || r.generic) && L && L.st === 'propose' && Math.min(75, L.base) > s) add(Math.min(75, L.base) - s, 'proposition de l’IA, à valider');
-  const floor = r && r.floor || 0; if (s < floor) add(floor - s, 'plancher du référentiel');
+  const floor = r && !adminLocal && r.floor || 0; if (s < floor) add(floor - s, 'plancher du référentiel');
   s = Math.min(100, Math.max(0, s)); ev.score = s; ev.level = level(s); ev.parts = parts;
   ev.why = parts.map(([l, d], i) => l + ' ' + (i && d >= 0 ? '+' : '') + d).join(' · ');
 }
@@ -177,7 +190,7 @@ if (cluster.isWorker) {   // processus de réception : rien d'autre (ni console,
   if (!SELFTEST) startReceivers(stage1);
   setInterval(() => { if (outBuf.length) { process.send({ t: 'ev', evs: outBuf }); outBuf = []; } }, 50);
   setInterval(() => process.send({ t: 'stats', ...statsPayload() }), 1000);
-  process.on('message', m => { if (m && m.t === 'learned') loadLearned(); if (m && m.t === 'modeles') loadModels(); });   // référentiel appris modifié dans la console
+  process.on('message', m => { if (m && m.t === 'learned') loadLearned(); if (m && m.t === 'modeles') loadModels(); if (m && m.t === 'confiance') loadTrust(); });   // référentiel appris modifié dans la console
   process.on('disconnect', () => { rawOut.end(); process.exit(0); });
   return;
 }
@@ -191,7 +204,8 @@ function stage2(ev, sample, replay) {
   recent.push(ev); if (recent.length > 300) recent.shift();
   if (sample) return SHOW_BENIN && !WORKERS && console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL.benin}BENIN   ${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
   if (!replay) evOut(JSON.stringify(ev));
-  if (ev.level !== 'benin') { const I = incident(ev); if (!replay) alertIncident(I); } else if (ev.rec) recover(ev, replay);
+  if (ev.level !== 'benin') { const I = incident(ev); if (!replay) { alertIncident(I); odooIncident(I); } } else if (ev.rec) recover(ev, replay);
+  if (ev.notice === 'admin' && !replay) adminNotice(ev);
   if (!replay) console.log(`${new Date(ev.t).toLocaleTimeString('fr-FR')} ${ev.from.padEnd(15)} ${COL[ev.level]}${ev.level.toUpperCase().padEnd(8)}${RST} ${String(ev.score).padStart(3)}  ${(ev.cat || '-').slice(0, 22).padEnd(22)} ${ev.msg.slice(0, 90)}`);
 }
 // Incidents agrégés côté serveur : un par (type, équipement, source), gardés 7 jours après le dernier événement.
@@ -209,7 +223,7 @@ setInterval(() => { const lim = Date.now() - 7 * 864e5; for (const [k, I] of inc
 const portTok = m => { const x = String(m || '').match(/\b(port\s*\d+|lan\d+|wan\d*|ge\d+|opt\d*|eth\d+)\b/i); return x ? x[1].toLowerCase().replace(/\s+/g, '') : ''; };
 function recover(ev, replay) { const r = REF.find(x => x.k === ev.k), tk = portTok(ev.msg);
   for (const I of incidents.values()) if (I.dev === ev.dev && r && r.recovers.includes(I.k) && I.status !== 'résolu' && I.last <= ev.t && (!tk || !I.toks || I.toks.includes(tk))) {
-    I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; if (!replay) alertBack(I); } }
+    I.status = 'résolu'; I.resolved = ev.t; I.resolvedBy = ev.msg; if (!replay) { alertBack(I); odooClose(incKey(I), `Revenu à la normale à ${hhmmss(ev.t)} : ${String(ev.msg).slice(0, 120)}.`).catch(e => oLog(false, 'Clôture du ticket : ' + e.message)); } } }
 // Un switch ou une borne n'envoie de log que s'il se passe quelque chose : avant de le dire silencieux, on le pinge.
 // Adresse : apprise des logs DHCP du pare-feu, ou sa source syslog si elle est privée et n'est partagée avec aucun autre équipement (pas de NAT).
 const IP_FILE = path.join(DIR, 'adresses.json'), hostIp = new Map(); let ipDirty = false;
@@ -341,9 +355,9 @@ function extLogo(id, r, fmt) {
   logoJobs.get(id).then(send, err => { if (EXT_SITES[id]) { try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fail, err.message + '\n'); } catch (e) {} console.log(`\x1b[2mLogo ${id} : ${err.message} (nouvel essai dans 24 h)\x1b[0m`); } if (have) return send(have); r.writeHead(404); r.end(); });
 }
 // --- Telegram : vérification du bot, détection du groupe (/start puis /configurate), message de test
-async function tg(token, method, body) {
+async function tg(token, method, body, ms = 10000) {
   if (!/^\d{6,}:[\w-]{20,}$/.test(token || '')) throw new Error('Jeton invalide.');
-  const r = await fetch(`${process.env.SYSLENS_TG_API || 'https://api.telegram.org'}/bot${token}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(10000) });
+  const r = await fetch(`${process.env.SYSLENS_TG_API || 'https://api.telegram.org'}/bot${token}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(ms) });
   const j = await r.json().catch(() => ({})); if (!j.ok) throw new Error(j.error_code === 401 ? 'Jeton refusé par Telegram.' : /webhook/i.test(j.description || '') ? 'Ce bot utilise déjà un webhook : supprimez-le ou utilisez un autre bot.' : (j.description || 'Telegram ne répond pas.')); return j.result; }
 // ---------- Alertes Telegram envoyées par le serveur ----------
 // Le jeton du bot ne va jamais dans un fichier : trousseau macOS (« syslens-telegram »), ou variable SYSLENS_TELEGRAM_TOKEN ailleurs.
@@ -380,7 +394,7 @@ async function waSend(token, cfg, text, to) { if (!/^\S{20,}$/.test(token || '')
     const j = r ? await r.json().catch(() => ({})) : {}; if (r && r.ok) ok++; else last = !r ? 'WhatsApp ne répond pas.' : (j.error && (j.error.error_user_msg || j.error.message)) || 'WhatsApp a répondu ' + r.status; }
   if (!ok) throw new Error(last || 'Aucun destinataire.'); if (last) throw new Error(`envoyé à ${ok} numéro(s) sur ${dest.length} : ${last}`); }
 const CANAUX = {
-  telegram: { nom: 'Telegram', on: () => { const c = alertCfg.telegram; return !!(c && c.on && c.chat && tgToken); }, lv: () => alertCfg.telegram.lv, send: text => tg(tgToken, 'sendMessage', { chat_id: alertCfg.telegram.chat, text, disable_web_page_preview: true }) },
+  telegram: { nom: 'Telegram', on: () => { const c = alertCfg.telegram; return !!(c && c.on && c.chat && tgToken); }, lv: () => alertCfg.telegram.lv, send: (text, level, kb) => tg(tgToken, 'sendMessage', { chat_id: alertCfg.telegram.chat, text, disable_web_page_preview: true, ...(kb ? { reply_markup: { inline_keyboard: kb } } : {}) }) },
   teams: { nom: 'Teams', on: () => !!(alertCfg.teams && alertCfg.teams.on && teamsUrl), lv: () => alertCfg.teams.lv, send: (text, level) => teamsSend(teamsUrl, text, level) },
   whatsapp: { nom: 'WhatsApp', on: () => { const c = alertCfg.whatsapp; return !!(c && c.on && waToken && (c.to || []).length); }, lv: () => alertCfg.whatsapp.lv, send: text => waSend(waToken, alertCfg.whatsapp, text) } };
 // Un message part sur chaque canal qui accepte son niveau ; un retour à la normale suit le niveau de l'alerte qu'il referme.
@@ -389,7 +403,7 @@ const alertOn = lv => Object.values(CANAUX).some(c => c.on() && (!lv || c.lv().i
 let alertBusy = false;
 function alertPush(item, level) { alertQ.push(typeof item === 'string' ? { text: item, level } : item); if (alertQ.length > 2000) alertQ.shift(); if (!alertTimer && !alertBusy) alertTimer = setTimeout(alertFlush, 1500); }
 function alertGroup(items) { const cnt = new Map(), done = new Set(), out = []; for (const it of items) if (it.grp) cnt.set(it.grp, (cnt.get(it.grp) || 0) + 1);
-  for (const it of items) { if (!it.grp || cnt.get(it.grp) < 3) { out.push({ text: it.text, level: it.level }); continue; } if (done.has(it.grp)) continue; done.add(it.grp);
+  for (const it of items) { if (!it.grp || cnt.get(it.grp) < 3) { out.push({ text: it.text, level: it.level, kb: it.kb, only: it.only, notice: it.notice }); continue; } if (done.has(it.grp)) continue; done.add(it.grp);
     const all = items.filter(x => x.grp === it.grp), srcs = [...new Set(all.map(x => x.src).filter(Boolean))], lv = all.reduce((a, x) => RANK[x.level] > RANK[a] ? x.level : a, it.level);
     out.push({ level: lv, text: `${DOT[lv]} ${lv.toUpperCase()} · ${all.length} incidents en rafale\n${it.sig}\n${it.dev}${srcs.length ? ` · ${srcs.length} source(s) : ${srcs.slice(0, 3).join(', ')}${srcs.length > 3 ? '…' : ''}` : ''}\nDétail dans SysLens · ${hhmmss(Date.now())}` }); }
   return out; }
@@ -397,8 +411,8 @@ async function alertFlush() { alertTimer = null; if (!alertOn()) { alertQ.length
   try { const msgs = alertGroup(alertQ.splice(0));
     for (const m of msgs) { const now = Date.now(); if (now - alertMin.t > 60e3) alertMin = { t: now, n: 0 };
       if (alertMin.n >= 17) { alertHeld.push(m); continue; } alertMin.n++;
-      for (const [id, C] of Object.entries(CANAUX)) { if (!C.on() || (m.level && !C.lv().includes(m.level))) continue;
-        try { await C.send(m.text, m.level); alertLog.push({ t: Date.now(), ok: true, canal: id, text: m.text.split('\n').slice(0, 2).join(' · ') }); }
+      for (const [id, C] of Object.entries(CANAUX)) { if (!C.on() || (m.only && m.only !== id) || (m.notice && id === 'whatsapp') || (m.level && !C.lv().includes(m.level))) continue;
+        try { await C.send(m.text, m.level, id === 'telegram' ? m.kb : undefined); alertLog.push({ t: Date.now(), ok: true, canal: id, text: m.text.split('\n').slice(0, 2).join(' · ') }); }
         catch (e) { alertLog.push({ t: Date.now(), ok: false, canal: id, text: m.text.split('\n')[0], err: e.message }); } if (alertLog.length > 60) alertLog.shift(); }
       await new Promise(r => setTimeout(r, 1100)); } }
   finally { alertBusy = false; }
@@ -407,6 +421,14 @@ async function alertFlush() { alertTimer = null; if (!alertOn()) { alertQ.length
   else if (alertHeld.length) alertTimer = setTimeout(() => { alertTimer = null; const n = alertHeld.length, ex = alertHeld.slice(0, 3).map(x => '· ' + x.text.split('\n').slice(0, 2).join(' — ')).join('\n'), lv = alertHeld.reduce((a, x) => x.level && RANK[x.level] > (RANK[a] || 0) ? x.level : a, null); alertHeld = [];
     alertPush(`⚠️ ${n} autre(s) alerte(s) regroupée(s) pour ne pas saturer le groupe :\n${ex}${n > 3 ? '\n…' : ''}\nDétail dans SysLens.`, lv); }, Math.max(1000, alertMin.t + 61e3 - Date.now())); }
 const hhmmss = t => new Date(t).toLocaleTimeString('fr-FR');
+// Connexion admin attendue (adresse de confiance ou réseau local) : un message court sur Telegram et Teams, pas d'incident.
+// Une fois par équipement, compte et adresse toutes les 30 min ; jamais sur WhatsApp (facturé) ; désactivable (alertCfg.notices = false).
+const noticeSeen = new Map();
+function adminNotice(ev) { if (alertCfg.notices === false || !alertOn()) return; const dev = ev.host || ev.from, k = dev + '|' + (ev.user || ev.msg || '').slice(0, 60) + '|' + ev.src, now = Date.now();
+  if (now - (noticeSeen.get(k) || 0) < 30 * 60e3) return; noticeSeen.set(k, now); if (noticeSeen.size > 2000) noticeSeen.delete(noticeSeen.keys().next().value);
+  const via = (/\b(https?|ssh|telnet|console|web|gui|cli)\b/i.exec(ev.msg || '') || [])[1];
+  const user = ev.user || (/\b(?:administrator|admin(?:istrateur)?|user|account|compte|utilisateur)\s+([\w.@-]{2,40})\s+(?:has\s+)?(?:logged|log|s.est connect)/i.exec(ev.msg || '') || [])[1] || '';
+  alertPush({ notice: true, text: `⚠️ Connexion admin sur ${dev} ⚠️\nCompte ${user || 'inconnu'} depuis ${ev.src} (${trusted(ev.src) ? 'adresse de confiance' : 'réseau local'})${via ? ' en ' + via.toUpperCase() : ''} · ${hhmmss(ev.t || now)}` }); }
 // Lien qui tombe et revient sans cesse : au 3e aller-retour en 10 min, un seul message « instable », puis silence 30 min sur cet incident.
 function flapping(I) { const now = Date.now(), f = flap.get(I.key) || { ts: [], mute: 0 }; f.ts = f.ts.filter(x => now - x < 10 * 60e3); f.ts.push(now); flap.set(I.key, f);
   if (flap.size > 5000) flap.delete(flap.keys().next().value);
@@ -414,43 +436,151 @@ function flapping(I) { const now = Date.now(), f = flap.get(I.key) || { ts: [], 
 function alertIncident(I) { if (!I || !alertOn(I.level)) return;
   const prev = alertSent.get(I.key), now = Date.now();
   if (prev && RANK[I.level] <= RANK[prev.level] && now - prev.t < 30 * 60e3) return;
-  const e = REF_RAW.find(x => x.k === I.k) || {}, dev = I.host || I.from, fam = famOfProduct(I.product || I.host), sig = e.sig || (I.cat ? I.cat + ' : ' : '') + String(I.msg).slice(0, 120);
+  const L = learned.types[I.tk] || {}, e0 = REF_RAW.find(x => x.k === I.k) || {}, e = e0.sig ? e0 : { sig: L.sig, act: L.act }, dev = I.host || I.from, fam = famOfProduct(I.product || I.host), sig = e.sig || (I.cat ? I.cat + ' : ' : '') + String(I.msg).slice(0, 120);
   const fl = prev ? '' : flapping(I); if (fl === 'mute') return;
   alertSent.set(I.key, { t: now, level: I.level }); if (alertSent.size > 5000) alertSent.delete(alertSent.keys().next().value);
   if (fl === 'flap') return alertPush({ level: I.level, text: `⚠️ INSTABLE · ${sig}\n${dev} (${fam}) : tombé puis revenu ${flap.get(I.key).ts.length} fois en 10 min.\nAlertes de cet incident suspendues 30 min.${e.act ? '\nÀ faire : ' + e.act : ''}` });
-  alertPush({ grp: I.k + '|' + dev, level: I.level, sig, dev, src: I.src && isPublic(I.src) ? I.src : '', text: `${DOT[I.level] || ''} ${I.level.toUpperCase()} · ${I.score}/100${prev ? ' · aggravé' : ''}
+  const secu = /malware|sandbox|botnet|iprep|idp|adp|dos|admin|lockout|auth|user-ko|2fa|threat|cdr|nego|attack|rogue|scan/.test(I.k || ''), late = Date.now() - I.last > 120e3;
+  alertPush({ grp: I.k + '|' + dev, level: I.level, sig, dev, src: secu && I.src && isPublic(I.src) ? I.src : '', kb: fbOn() ? [[{ text: '🙋 Je m’en occupe', callback_data: 'p|' + fbId({ kind: 'prise', key: incKey(I), sig, dev, level: I.level, score: I.score, msg: String(I.msg).slice(0, 300), act: e.act || '' }) }]] : undefined, text: `${DOT[I.level] || ''} ${I.level.toUpperCase()} · ${I.score}/100${prev ? ' · aggravé' : ''}
 ${sig}
-${dev} (${fam})${I.src && isPublic(I.src) ? ' · source ' + I.src : ''}
-${e.sig ? 'Log : ' + String(I.msg).slice(0, 160) + '\n' : ''}${e.act ? 'À faire : ' + e.act + '\n' : ''}${I.count > 1 ? I.count + ' logs · ' : ''}${hhmmss(I.last)}` }); }
+${dev} (${fam})${secu && I.src && isPublic(I.src) ? ' · source ' + I.src : ''}
+${e.sig ? 'Log : ' + String(I.msg).slice(0, 160) + '\n' : ''}${e.act ? 'À faire : ' + e.act : ''}${I.count > 1 || late ? '\n' + (I.count > 1 ? I.count + ' logs' : '') + (I.count > 1 && late ? ' · ' : '') + (late ? 'reçu à ' + hhmmss(I.last) : '') : ''}` }); }
 function alertBack(I) { const prev = alertSent.get(I.key); if (!prev || !alertOn()) return; alertSent.delete(I.key); const f = flap.get(I.key); if (f && f.mute > Date.now()) return;
-  const e = REF_RAW.find(x => x.k === I.k) || {}; alertPush(`✅ Revenu à la normale\n${e.sig || I.cat || I.k}\n${I.host || I.from} · ${hhmmss(I.resolved || Date.now())}`, prev.level); }
+  const L = learned.types[I.tk] || {}, e0 = REF_RAW.find(x => x.k === I.k) || {}, sig = e0.sig || L.sig || I.cat || I.k, act = e0.act || L.act || '', mean = e0.mean || L.mean || '', ia = !e0.sig && !!L.sig;
+  const ask = fbOn() && act, id = ask ? fbId({ kind: 'diag', k: I.k, tk: I.tk, sig, dev: I.host || I.from, ia }) : '';
+  alertPush({ level: prev.level, kb: ask ? [[{ text: '👍 Bon diagnostic', callback_data: 'd+|' + id }, { text: '👎 Mauvais diagnostic', callback_data: 'd-|' + id }]] : undefined,
+    text: `✅ Revenu à la normale\n${sig}\n${I.host || I.from} · ${hhmmss(I.resolved || Date.now())}${ask ? `\n\nDiagnostic ${ia ? 'de l’IA' : 'de SysLens'} :${mean ? '\n' + mean : ''}\nÀ faire : ${act}\nÉtait-il bon ?` : ''}` }); }
 // Injoignable : à la perte du ping, ou au premier ping raté d'un équipement qui parlait encore dans les 6 dernières heures.
 function alertPing(d, ok) { if (!alertOn(ok ? null : 'grave')) return; const k = 'ping|' + (d.host || d.from);
   if (!ok) { if (alertSent.has(k)) return; alertSent.set(k, { t: Date.now(), level: 'grave' }); alertPush(`🟠 GRAVE · équipement injoignable\n${d.host || d.from} (${famOfDev(d)}) ne répond plus au ping (${d.ping.ip}) ; dernier log il y a ${Math.round((Date.now() - d.last) / 60e3)} min.\nÀ faire : vérifier son alimentation, son câble et le lien qui le relie au réseau.\n${hhmmss(Date.now())}`, 'grave'); }
   else if (alertSent.delete(k)) alertPush(`✅ De nouveau joignable\n${d.host || d.from} répond au ping (${d.ping.ms} ms) · ${hhmmss(Date.now())}`, 'grave'); }
 async function tgApi(q, me) {
-  if (['save', 'remove', 'me', 'detect', 'send'].includes(q.op) && hasAccounts() && (!me || me.role !== 'admin')) throw new Error('Réservé aux administrateurs.');
-  if (q.op === 'status') { const c = alertCfg.telegram || {}; return { on: !!c.on, chat: c.chat || '', chatName: c.chatName || '', lv: c.lv || ['critique', 'grave'], token: !!tgToken, keychain: KC, sent: alertLog.filter(x => !x.canal || x.canal === 'telegram').slice(-15).reverse() }; }
+  if (['save', 'remove', 'me', 'detect', 'send', 'retours'].includes(q.op) && hasAccounts() && (!me || me.role !== 'admin')) throw new Error('Réservé aux administrateurs.');
+  if (q.op === 'status') { const c = alertCfg.telegram || {}; return { on: !!c.on, chat: c.chat || '', chatName: c.chatName || '', lv: c.lv || ['critique', 'grave'], token: !!tgToken, keychain: KC, retours: fbStats(), sent: alertLog.filter(x => !x.canal || x.canal === 'telegram').slice(-15).reverse() }; }
   if (q.op === 'save') { const token = String(q.token || '').trim() || tgToken, me = await tg(token, 'getMe');
     const lv = (Array.isArray(q.lv) ? q.lv : []).filter(l => RANK[l]); if (!lv.length) throw new Error('Choisissez au moins un niveau.');
     if (!/^-?\d{3,20}$/.test(String(q.chat || ''))) throw new Error('Groupe invalide.');
     if (token !== tgToken && KC && (await kc(['add-generic-password', '-U', '-a', 'syslens', '-s', 'syslens-telegram', '-l', 'SysLens (bot Telegram)', '-w', token])) === null) throw new Error('Impossible d’enregistrer le jeton dans le trousseau macOS.');
     tgToken = token; alertCfg.telegram = { on: true, chat: String(q.chat), chatName: String(q.chatName || '').slice(0, 80), lv, bot: me.username };
     fs.writeFileSync(ALERT_FILE, JSON.stringify(alertCfg, null, 1)); return { ok: true, keychain: KC }; }
+  if (q.op === 'retours') { if (!alertCfg.telegram) throw new Error('Telegram n’est pas configuré.'); alertCfg.telegram.retours = !!q.on; fs.writeFileSync(ALERT_FILE, JSON.stringify(alertCfg, null, 1)); return { ok: true, retours: fbStats() }; }
   if (q.op === 'remove') { if (KC) await kc(['delete-generic-password', '-a', 'syslens', '-s', 'syslens-telegram']); tgToken = ''; delete alertCfg.telegram; fs.writeFileSync(ALERT_FILE, JSON.stringify(alertCfg, null, 1)); return { ok: true }; }
   if (q.op === 'me') { const me = await tg(q.token, 'getMe'); return { username: me.username }; }
   if (q.op === 'detect') {
-    const ups = await tg(q.token, 'getUpdates', { timeout: 0, allowed_updates: ['message'] }), started = new Set(); let hit = null;
+    const viaBuf = tgPolling && q.token === tgToken, ups = viaBuf ? tgBuf.slice() : await tg(q.token, 'getUpdates', { timeout: 0, allowed_updates: ['message'] }), started = new Set(); let hit = null;
     for (const u of ups) { const m = u.message; if (!m || !m.text || !m.chat) continue;
       const cmd = m.text.trim().split(/\s+/)[0].toLowerCase().replace(/@\w+$/, '');
       if (cmd === '/start') started.add(m.chat.id);
       else if (cmd === '/configurate' && started.has(m.chat.id)) hit = { chat: String(m.chat.id), title: m.chat.title || [m.chat.first_name, m.chat.last_name].filter(Boolean).join(' ') || 'Discussion', last: u.update_id }; }
     if (!hit) return { found: false };
-    await tg(q.token, 'getUpdates', { offset: hit.last + 1, timeout: 0 });
+    if (viaBuf) tgBuf.length = 0; else await tg(q.token, 'getUpdates', { offset: hit.last + 1, timeout: 0 });
     await tg(q.token, 'sendMessage', { chat_id: hit.chat, text: 'SysLens : groupe reconnu. Les alertes arriveront ici.' }).catch(() => {});
     return { found: true, chat: hit.chat, title: hit.title }; }
   if (q.op === 'send') { await tg(String(q.token || '').trim() || tgToken, 'sendMessage', { chat_id: q.chat || (alertCfg.telegram || {}).chat, text: `SysLens — message de test\nLes alertes de niveau ${String(q.lv || 'critique').slice(0, 60)} arriveront dans ce groupe.` }); return { sent: true }; }
   throw new Error('Opération inconnue.'); }
+// ---------- Odoo Assistance : un ticket par alerte, assigné à qui s'en occupe ----------
+// API JSON-RPC d'Odoo (/jsonrpc), avec un utilisateur technique et sa clé API (trousseau macOS « syslens-odoo » ou SYSLENS_ODOO_KEY,
+// jamais dans un fichier). Pour les niveaux choisis, chaque alerte crée un ticket dans l'équipe d'assistance choisie ; « Je m'en occupe »
+// sur Telegram l'assigne au compte Odoo relié à ce technicien ; le retour à la normale ou la clôture dans SysLens le passe à l'étape choisie.
+const ODOO_FILE = path.join(DIR, 'odoo.json'), ODOO_T_FILE = path.join(DIR, 'odoo-tickets.json'), ODOO_TEST = !!process.env.SYSLENS_ODOO_TEST;
+let odooCfg = {}, odooT = {}, odooKey = process.env.SYSLENS_ODOO_KEY || ''; const odooLog = [];
+try { odooCfg = JSON.parse(fs.readFileSync(ODOO_FILE, 'utf8')) || {}; } catch (e) {} try { odooT = JSON.parse(fs.readFileSync(ODOO_T_FILE, 'utf8')) || {}; } catch (e) {}
+if (KC && !odooKey) kc(['find-generic-password', '-a', 'syslens', '-s', 'syslens-odoo', '-w']).then(t => { if (t) odooKey = t; });
+const odooSave = () => { try { fs.writeFileSync(ODOO_FILE, JSON.stringify(odooCfg, null, 1)); } catch (e) {} }, odooTSave = () => { const lim = Date.now() - 60 * 864e5; for (const [k, v] of Object.entries(odooT)) if (v.t < lim) delete odooT[k]; try { fs.writeFileSync(ODOO_T_FILE, JSON.stringify(odooT)); } catch (e) {} };
+const odooOn = () => !!(odooCfg.on && odooCfg.uid && odooKey);
+const odooUrlOk = u => { try { const x = new URL(String(u)); return x.protocol === 'https:' || (ODOO_TEST && x.protocol === 'http:' && x.hostname === '127.0.0.1'); } catch (e) { return false; } };
+async function odooRpc(cfg, service, method, args) { if (!odooUrlOk(cfg.url)) throw new Error('Adresse Odoo refusée : https seulement.');
+  const r = await fetch(new URL('/jsonrpc', cfg.url), { method: 'POST', headers: { 'content-type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000), body: JSON.stringify({ jsonrpc: '2.0', method: 'call', id: Date.now(), params: { service, method, args } }) }).catch(() => { throw new Error('Odoo ne répond pas.'); });
+  const j = await r.json().catch(() => ({})); if (j.error) throw new Error(((j.error.data && j.error.data.message) || j.error.message || 'Erreur Odoo').slice(0, 200)); if (!r.ok) throw new Error('Odoo a répondu ' + r.status); return j.result; }
+const odooKw = (model, method, args, kw = {}, cfg = odooCfg, key = odooKey) => odooRpc(cfg, 'object', 'execute_kw', [cfg.db, cfg.uid, key, model, method, args, kw]);
+const oLog = (ok, txt) => { odooLog.push({ t: Date.now(), ok, txt: String(txt).slice(0, 200) }); if (odooLog.length > 40) odooLog.shift(); };
+const escH = t => String(t || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const odooPend = new Map();   // une seule création à la fois par incident, même si les logs arrivent en rafale
+function odooTicket(key, info) { if (!odooOn()) return Promise.resolve(null); const T = odooT[key]; if (T && !T.closed) return Promise.resolve(T.id); if (odooPend.has(key)) return odooPend.get(key);
+  const p = odooCreate(key, info).finally(() => odooPend.delete(key)); odooPend.set(key, p); return p; }
+async function odooCreate(key, info) {
+  const id = await odooKw('helpdesk.ticket', 'create', [{ name: `[SysLens] ${info.sig} — ${info.dev}`.slice(0, 200), ...(odooCfg.team ? { team_id: odooCfg.team } : {}), priority: { critique: '3', grave: '2', moyen: '1' }[info.level] || '1',
+    description: `<p><b>${escH(info.sig)}</b> sur <b>${escH(info.dev)}</b>, niveau ${escH(info.level)} (${info.score}/100).</p><p>Log : <code>${escH(info.msg)}</code></p>${info.act ? `<p>À faire : ${escH(info.act)}</p>` : ''}<p>Ticket ouvert par SysLens.</p>` }]);
+  odooT[key] = { id, t: Date.now() }; odooTSave(); oLog(true, `Ticket #${id} créé : ${info.sig} — ${info.dev}`); return id; }
+function odooIncident(I) { if (!odooOn() || !(odooCfg.lv || []).includes(I.level)) return; const L = learned.types[I.tk] || {}, e = REF_RAW.find(x => x.k === I.k) || {};
+  odooTicket(incKey(I), { sig: e.sig || L.sig || (I.cat ? I.cat + ' : ' : '') + String(I.msg).slice(0, 100), dev: I.host || I.from, level: I.level, score: I.score, msg: String(I.msg).slice(0, 300), act: e.act || L.act || '' }).catch(err => oLog(false, 'Création du ticket : ' + err.message)); }
+async function odooAssign(key, info, tgUser) { if (!odooOn()) return null; const id = await odooTicket(key, info), uid = (odooCfg.users || {})[String(tgUser.id)];
+  if (uid) await odooKw('helpdesk.ticket', 'write', [[id], { user_id: uid }]);
+  await odooKw('helpdesk.ticket', 'message_post', [[id]], { body: `Pris en charge par ${escH(tgUser.name)} depuis Telegram.`, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }).catch(() => {});
+  oLog(true, `Ticket #${id} ${uid ? 'assigné' : 'non assigné (compte Odoo non relié)'} : ${tgUser.name}`); return { id, assigned: !!uid }; }
+async function odooClose(key, why) { const T = odooT[key]; if (!odooOn() || !T || T.closed) return;
+  if (odooCfg.stage) await odooKw('helpdesk.ticket', 'write', [[T.id], { stage_id: odooCfg.stage }]);
+  await odooKw('helpdesk.ticket', 'message_post', [[T.id]], { body: escH(why), message_type: 'comment', subtype_xmlid: 'mail.mt_note' }).catch(() => {});
+  T.closed = Date.now(); odooTSave(); oLog(true, `Ticket #${T.id} ${odooCfg.stage ? 'passé à l’étape de clôture' : 'annoté'} : ${why}`); }
+async function odooApi(q, me) {
+  if (q.op !== 'status' && hasAccounts() && (!me || me.role !== 'admin')) throw new Error('Réservé aux administrateurs.');
+  if (q.op === 'status') return { on: odooOn(), url: odooCfg.url || '', db: odooCfg.db || '', login: odooCfg.login || '', team: odooCfg.team || null, stage: odooCfg.stage || null, lv: odooCfg.lv || ['critique', 'grave'], users: odooCfg.users || {}, key: !!odooKey, keychain: KC,
+    tg: Object.entries(fb.users || {}).map(([id, u]) => ({ id, ...u })).sort((a, b) => b.last - a.last).slice(0, 50), log: odooLog.slice(-15).reverse(), tickets: Object.keys(odooT).length };
+  const cfg = { url: String(q.url || odooCfg.url || '').trim().replace(/\/+$/, ''), db: String(q.db || odooCfg.db || '').trim(), login: String(q.login || odooCfg.login || '').trim() }, key = String(q.key || '').trim() || odooKey;
+  if (q.op === 'test') { if (!cfg.url || !cfg.db || !cfg.login || !key) throw new Error('Adresse, base, utilisateur et clé API sont nécessaires.');
+    const uid = await odooRpc(cfg, 'common', 'authenticate', [cfg.db, cfg.login, key, {}]); if (!uid) throw new Error('Identifiants refusés par Odoo.'); cfg.uid = uid;
+    const ver = await odooRpc(cfg, 'common', 'version', []).catch(() => ({}));
+    const teams = await odooKw('helpdesk.team', 'search_read', [[]], { fields: ['name'], limit: 50 }, cfg, key).catch(e => { throw new Error(/helpdesk/i.test(e.message) ? 'Le module Assistance (Helpdesk) n’est pas installé, ou ce compte n’y a pas accès.' : e.message); });
+    const stages = await odooKw('helpdesk.stage', 'search_read', [[]], { fields: ['name', 'fold'], limit: 50 }, cfg, key).catch(() => []);
+    const users = await odooKw('res.users', 'search_read', [[['share', '=', false]]], { fields: ['name', 'login'], limit: 200 }, cfg, key).catch(() => []);
+    return { ok: true, uid, version: ver.server_version || '', teams, stages, users }; }
+  if (q.op === 'save') { if (!cfg.url || !cfg.db || !cfg.login || !key) throw new Error('Adresse, base, utilisateur et clé API sont nécessaires.');
+    const uid = await odooRpc(cfg, 'common', 'authenticate', [cfg.db, cfg.login, key, {}]); if (!uid) throw new Error('Identifiants refusés par Odoo.');
+    const lv = (Array.isArray(q.lv) ? q.lv : []).filter(l => RANK[l]); const users = {}; for (const [k, v] of Object.entries(q.users || {})) if (/^\d{1,15}$/.test(k) && Number.isInteger(+v) && +v > 0) users[k] = +v;
+    if (key !== odooKey && KC && (await kc(['add-generic-password', '-U', '-a', 'syslens', '-s', 'syslens-odoo', '-l', 'SysLens (Odoo)', '-w', key])) === null) throw new Error('Impossible d’enregistrer la clé dans le trousseau macOS.');
+    odooKey = key; odooCfg = { on: true, ...cfg, uid, team: +q.team || null, stage: +q.stage || null, lv, users }; odooSave(); return { ok: true, keychain: KC }; }
+  if (q.op === 'users') { const users = {}; for (const [k, v] of Object.entries(q.users || {})) if (/^\d{1,15}$/.test(k) && Number.isInteger(+v) && +v > 0) users[k] = +v; odooCfg.users = users; odooSave(); return { ok: true }; }
+  if (q.op === 'remove') { if (KC) await kc(['delete-generic-password', '-a', 'syslens', '-s', 'syslens-odoo']); odooKey = ''; odooCfg = {}; odooSave(); return { ok: true }; }
+  throw new Error('Opération inconnue.'); }
+// ---------- Retours des techniciens par Telegram ----------
+// Boutons sous les messages : « je m'en occupe » sur une alerte (incident acquitté, temps de prise en charge mesuré), « le diagnostic
+// était-il bon ? » au retour à la normale, et juste / trop bas / trop haut / faux sur chaque proposition de l'IA. Seuls les boutons
+// du groupe configuré comptent, une seule réponse par message. Une réponse vaut une décision de technicien : l'IA apprend comme
+// d'une validation dans la console (exemples, autonomie). Écoute de Telegram par interrogation longue, sans rien ouvrir sur le réseau.
+const FB_FILE = path.join(DIR, 'retours.json'); let fb = { ids: {}, rt: [], diag: {}, log: [] }; try { fb = { ...fb, ...JSON.parse(fs.readFileSync(FB_FILE, 'utf8')) }; } catch (e) {}
+const fbSave = () => { try { fs.writeFileSync(FB_FILE + '.part', JSON.stringify(fb)); fs.renameSync(FB_FILE + '.part', FB_FILE); } catch (e) {} };
+const fbOn = () => { const c = alertCfg.telegram; return !!(c && c.on && tgToken && c.retours !== false); };
+function fbId(o) { const id = crypto.randomBytes(5).toString('hex'), lim = Date.now() - 14 * 864e5; fb.ids[id] = { ...o, t: Date.now() };
+  const ks = Object.keys(fb.ids); for (const k of ks) if (fb.ids[k].t < lim) delete fb.ids[k]; if (ks.length > 4000) ks.slice(0, ks.length - 4000).forEach(k => delete fb.ids[k]); fbSave(); return id; }
+const MID = [15, 45, 70, 90];
+// Avis demandé sur les propositions de moyen à critique, 12 par heure au plus : le groupe d'astreinte ne doit pas crouler sous les questions.
+function fbPropose(list) { if (!fbOn()) return; const h = Math.floor(Date.now() / 3600e3); if (fb.ph !== h) { fb.ph = h; fb.pn = 0; }
+  for (const [key, L] of list.filter(([, v]) => v.base >= 30)) { if (fb.pn >= 12) break; fb.pn++; const id = fbId({ kind: 'prop', key, base: L.base }), lv = ['bénin', 'moyen', 'grave', 'critique'][LEVEL(L.base)];
+  alertPush({ only: 'telegram', kb: [[{ text: '👍 Juste', callback_data: 'v+|' + id }, { text: '⬆️ Trop bas', callback_data: 'vb|' + id }], [{ text: '⬇️ Trop haut', callback_data: 'vh|' + id }, { text: '👎 Faux', callback_data: 'v-|' + id }]],
+    text: `🤖 Nouveau type de log, noté par l’IA\n${L.sig}\nLog : ${L.cat ? L.cat + ' · ' : ''}${String(L.msg || '').slice(0, 160)}\n\nNote proposée : ${L.base}/100 (${lv})${L.base > 75 ? ' ; en attendant votre avis, SysLens la traite en grave au plus' : ''}${L.mean ? '\nCe que c’est : ' + L.mean : ''}${L.act ? '\nÀ faire : ' + L.act : ''}${L.doc ? `\nD’après le guide ${L.doc.model}, page ${L.doc.p}` : ''}\n\nSa proposition est-elle juste ?` }); } }
+async function tgCallback(cq) { const [act, id] = String(cq.data || '').split('|'), F = fb.ids[id], m = cq.message, who = cq.from ? (cq.from.username ? '@' + cq.from.username : String(cq.from.first_name || cq.from.id).slice(0, 40)) : 'Telegram';
+  const answer = text => tg(tgToken, 'answerCallbackQuery', { callback_query_id: cq.id, text }).catch(() => {});
+  if (!m || String(m.chat.id) !== String((alertCfg.telegram || {}).chat)) return answer('Groupe non reconnu par SysLens.');
+  if (!F || act === 'x') return answer(F && F.done ? `Déjà répondu par ${F.done.by}.` : 'Ce bouton a expiré.');
+  if (F.done) return answer(`Déjà répondu par ${F.done.by}.`);
+  const now = Date.now(), by = who + ' (Telegram)', name = cq.from ? [cq.from.first_name, cq.from.last_name].filter(Boolean).join(' ').slice(0, 60) || who : who; let label = '';
+  if (cq.from) { fb.users = fb.users || {}; fb.users[String(cq.from.id)] = { name, username: cq.from.username || '', last: now }; }
+  if (F.kind === 'prise' && act === 'p') { const st = incEtat[F.key]; if (!st || st.st !== 'clos') incEtat[F.key] = { st: 'acquitté', t: now, by }; try { fs.writeFileSync(INC_FILE, JSON.stringify(incEtat)); } catch (e) {}
+    const min = Math.max(0, Math.round((now - F.t) / 60e3)); fb.rt.push({ t: now, min, by: who }); if (fb.rt.length > 500) fb.rt.shift(); label = `🙋 ${name} s’en occupe (${min} min après l’alerte)`;
+    let od = null, odErr = ''; try { od = await odooAssign(F.key, { sig: F.sig, dev: F.dev, level: F.level || 'grave', score: F.score || 0, msg: F.msg || '', act: F.act || '' }, { id: cq.from && cq.from.id, name }); } catch (e) { odErr = e.message; oLog(false, 'Assignation : ' + e.message); }
+    tg(tgToken, 'sendMessage', { chat_id: m.chat.id, reply_parameters: { message_id: m.message_id, allow_sending_without_reply: true }, text: `🙋 ${name} s’occupe de « ${F.sig} » sur ${F.dev}${od ? `\nTicket Odoo #${od.id} ${od.assigned ? 'assigné à ' + name : 'créé, à assigner dans Odoo (compte de ' + name + ' pas encore relié)'}` : odErr ? '\nOdoo : ' + odErr : ''}` }).catch(() => {}); }
+  else if (F.kind === 'diag' && (act === 'd+' || act === 'd-')) { const good = act === 'd+', L = learned.types[F.tk], d = fb.diag[F.tk || F.k] = fb.diag[F.tk || F.k] || { ok: 0, ko: 0, sig: F.sig }; good ? d.ok++ : d.ko++;
+    if (L && L.st === 'propose') { if (good) { learned.decisions.push({ key: F.tk, prop: L.base, final: L.base, at: now, by }); Object.assign(L, { st: 'valide', src: (L.src || 'IA') + ', diagnostic confirmé par ' + by, at: now }); } else Object.assign(L, { doute: true, fbKo: (L.fbKo || 0) + 1 }); saveLearned(); }
+    else if (L && L.st === 'valide' && !good) { L.fbKo = (L.fbKo || 0) + 1; saveLearned(); }
+    label = good ? `👍 Diagnostic jugé bon par ${who}` : `👎 Diagnostic jugé mauvais par ${who} : à revoir dans SysLens`; }
+  else if (F.kind === 'prop' && /^v[+bh-]$/.test(act)) { const L = learned.types[F.key]; if (!L || L.st !== 'propose') { F.done = { by: who, t: now }; fbSave(); return answer('Déjà traité dans SysLens.'); }
+    if (act === 'v-') { learned.decisions.push({ key: F.key, prop: L.base, final: -100, at: now, by }); Object.assign(L, { st: 'rejete', at: now }); label = `👎 Jugée fausse par ${who} : à classer dans SysLens`; }
+    else { const lv = LEVEL(L.base), b = act === 'v+' ? L.base : MID[Math.max(0, Math.min(3, lv + (act === 'vb' ? 1 : -1)))];
+      learned.decisions.push({ key: F.key, prop: L.base, final: b, at: now, by }); Object.assign(L, { st: 'valide', base: b, src: (L.src || 'IA') + (b === L.base ? ', validé par ' : `, corrigé à ${b} par `) + by, at: now });
+      label = act === 'v+' ? `👍 Validée par ${who}` : `${act === 'vb' ? '⬆️' : '⬇️'} Corrigée à ${b}/100 par ${who}`; }
+    saveLearned(); }
+  else return answer('Bouton inconnu.');
+  F.done = { by: who, act, t: now }; fb.log.push({ t: now, kind: F.kind, act, by: who, sig: F.sig || (learned.types[F.key] || {}).sig || '' }); if (fb.log.length > 300) fb.log.shift(); fbSave(); await answer('Merci, c’est noté dans SysLens.');
+  await tg(tgToken, 'editMessageReplyMarkup', { chat_id: m.chat.id, message_id: m.message_id, reply_markup: { inline_keyboard: [[{ text: label, callback_data: 'x|' + id }]] } }).catch(() => {}); }
+let tgPolling = false; const tgBuf = [];
+async function tgListen() { if (tgPolling || SELFTEST) return; tgPolling = true; let off = 0;
+  while (true) { const c = alertCfg.telegram; if (!c || !c.on || !tgToken) { await sleep(15e3); continue; }
+    try { const t0 = Date.now(), ups = await tg(tgToken, 'getUpdates', { offset: off, timeout: +process.env.SYSLENS_TG_POLL || 25, allowed_updates: ['message', 'callback_query'] }, 40000); if (!ups.length && Date.now() - t0 < 1000) await sleep(1000);
+      for (const u of ups) { off = u.update_id + 1; if (u.callback_query) await tgCallback(u.callback_query).catch(() => {}); else if (u.message) { tgBuf.push(u); if (tgBuf.length > 50) tgBuf.shift(); } } }
+    catch (e) { await sleep(/webhook|onflict|terminated/i.test(e.message) ? 60e3 : 10e3); } } }
+setTimeout(tgListen, 3000).unref?.();
+function fbStats() { const r = fb.rt.slice(-50), d = Object.values(fb.diag); return { prise: r.length ? Math.round(r.reduce((a, x) => a + x.min, 0) / r.length) : null, prises: fb.rt.length,
+  diagOk: d.reduce((a, x) => a + x.ok, 0), diagKo: d.reduce((a, x) => a + x.ko, 0), log: fb.log.slice(-15).reverse(), on: fbOn() }; }
 const maskTel = n => String(n).replace(/^(\+\d{2})\d+(\d{2})$/, '$1 •• •• $2');
 async function notifApi(q, me) {
   if (q.op !== 'status' && hasAccounts() && (!me || me.role !== 'admin')) throw new Error('Réservé aux administrateurs.');
@@ -466,13 +596,17 @@ async function notifApi(q, me) {
   if (q.op === 'status') { const T = alertCfg.teams || {}, W = alertCfg.whatsapp || {}; return { keychain: KC,
     teams: { on: !!(T.on && teamsUrl), lv: T.lv || ['critique', 'grave'], host: teamsUrl ? new URL(teamsUrl).hostname : '', canal: T.canal || '' },
     whatsapp: { on: !!(W.on && waToken), lv: W.lv || ['critique'], phoneId: W.phoneId || '', to: (W.to || []).map(maskTel), template: W.template || '', lang: W.lang || 'fr', token: !!waToken },
-    sent: alertLog.filter(x => x.canal === 'teams' || x.canal === 'whatsapp').slice(-15).reverse() }; }
+    sent: alertLog.filter(x => x.canal === 'teams' || x.canal === 'whatsapp').slice(-15).reverse(), confiance: { admin: trust, env: !!process.env.SYSLENS_ADMIN_TRUST, notices: alertCfg.notices !== false } }; }
   if (q.op === 'teams-test') { const u = String(q.url || '').trim() || teamsUrl; await teamsSend(u, `SysLens — message de test\nLes alertes de niveau ${lvOf(q.lv).join(', ')} arriveront dans ce canal.`, 'moyen'); return { sent: true }; }
   if (q.op === 'teams-save') { const u = String(q.url || '').trim() || teamsUrl, lv = lvOf(q.lv); if (!teamsOk(u)) throw new Error('Adresse de webhook refusée : il faut celle d’un flux Teams (Workflows).');
     if (u !== teamsUrl) await keep('syslens-teams', 'SysLens (webhook Teams)', u); teamsUrl = u; alertCfg.teams = { on: true, lv, canal: String(q.canal || '').slice(0, 80) }; save(); return { ok: true, keychain: KC }; }
   if (q.op === 'wa-test') { const c = waCfg(), tok = String(q.token || '').trim() || waToken; await waSend(tok, c, `SysLens — message de test. Les alertes de niveau ${lvOf(q.lv).join(', ')} arriveront sur ce numéro.`); return { sent: true }; }
   if (q.op === 'wa-save') { const c = waCfg(), tok = String(q.token || '').trim() || waToken, lv = lvOf(q.lv); if (!/^\S{20,}$/.test(tok)) throw new Error('Jeton WhatsApp invalide.');
     if (tok !== waToken) await keep('syslens-whatsapp', 'SysLens (WhatsApp Business)', tok); waToken = tok; alertCfg.whatsapp = { on: true, lv, ...c }; save(); return { ok: true, keychain: KC }; }
+  if (q.op === 'confiance') { const L = (Array.isArray(q.admin) ? q.admin : String(q.admin || '').split(/[\s,;]+/)).map(x => String(x).trim()).filter(Boolean);
+    if (L.length > 50 || !L.every(c => /^\d{1,3}(\.\d{1,3}){3}(\/([0-9]|[12]\d|3[0-2]))?$/.test(c) && c.split('/')[0].split('.').every(o => +o <= 255))) throw new Error('Adresses invalides : une IPv4 ou un réseau CIDR par ligne (ex. 203.0.113.10 ou 203.0.113.0/28), 50 au plus.');
+    fs.writeFileSync(TRUST_FILE, JSON.stringify({ admin: L }, null, 1)); loadTrust(); for (const w of Object.values(cluster.workers || {})) try { w.send({ t: 'confiance' }); } catch (e) {}
+    if (q.notices !== undefined) { alertCfg.notices = !!q.notices; save(); } return { ok: true, admin: trust, notices: alertCfg.notices !== false }; }
   if (q.op === 'remove') { const id = q.canal === 'teams' ? 'teams' : q.canal === 'whatsapp' ? 'whatsapp' : ''; if (!id) throw new Error('Canal inconnu.');
     if (KC) await kc(['delete-generic-password', '-a', 'syslens', '-s', 'syslens-' + id]); if (id === 'teams') teamsUrl = ''; else waToken = ''; delete alertCfg[id]; save(); return { ok: true }; }
   throw new Error('Opération inconnue.'); }
@@ -643,7 +777,7 @@ ${JSON.stringify(items, null, 1)}`;
   try { j = JSON.parse(out.slice(a, b + 1)); } catch (e) { throw new Error('Réponse de l’IA illisible (pas de JSON).'); }
   const res = list.map(() => null);
   for (const x of Array.isArray(j.types) ? j.types : []) { const i = (+x.id || 0) - 1; if (!list[i] || res[i] || !Number.isFinite(+x.base)) continue;
-    res[i] = { base: Math.round(Math.max(0, Math.min(100, +x.base))), conf: Math.max(0, Math.min(1, +x.confiance || 0)), sig: String(x.sig || list[i].msg || '').slice(0, 80), mean: String(x.mean || '').slice(0, 300), act: String(x.act || '').slice(0, 300), doc: docRef[i] }; }
+    res[i] = { base: Math.round(Math.max(0, Math.min(100, +x.base))), conf: Math.max(0, Math.min(1, +x.confiance || 0)), sig: String(x.sig || list[i].msg || '').slice(0, 160), mean: String(x.mean || '').slice(0, 300), act: String(x.act || '').slice(0, 300), doc: docRef[i] }; }
   return { res, examples: ex.length }; }
 async function classify(c, max, opts = {}) {
   const P = (learned.profils || {})[mkey(c)], list = queue().slice(0, Math.max(1, Math.min(40, +max || 25, P && P.lot || 40))); if (!list.length) return { proposed: 0, left: 0 };
@@ -653,11 +787,11 @@ async function classify(c, max, opts = {}) {
   for (const [i, x] of res.entries()) { const t = list[i], dr = x && x.doc; if (!x || learned.types[t.key]) continue;
     const { base, conf } = x;
     const sure = auto && conf >= AUTO_CONF && !(base < 30 && /^(alert|crit|emerg)/i.test(t.sev || ''));
-    learned.types[t.key] = { st: sure ? 'valide' : 'propose', base, prop: base, sig: x.sig, mean: x.mean, act: x.act,
+    learned.types[t.key] = { st: sure ? 'valide' : 'propose', base, prop: base, sig: cutWords(x.sig, 80), mean: x.mean, act: x.act,
       conf, src: (dr ? src + ', avec le ' + KIND_FR[dr.kind] + ' ' + dr.model + ' p. ' + dr.p : src) + (sure ? ', validé seul (autonomie)' : ''), doc: dr, auto: sure || undefined, at: Date.now(), cat: t.cat, msg: t.msg, sev: t.sev };
     if (sure) { learned.decisions.push({ key: t.key, prop: base, final: base, auto: true, at: Date.now() }); na++; } n++; }
   if (learned.decisions.length > 2000) learned.decisions = learned.decisions.slice(-2000);
-  if (n) saveLearned(); console.log(`\x1b[36mIA : ${n} type(s) de log classé(s)${na ? `, dont ${na} validé(s) seul(s)` : ''}${ex.length ? ` (${ex.length} exemples appris)` : ''}\x1b[0m`);
+  if (n) { saveLearned(); fbPropose(Object.entries(learned.types).filter(([k, v]) => v.st === 'propose' && list.some(t => t.key === k) && v.at >= Date.now() - 60e3).sort((a, b) => b[1].base - a[1].base)); } console.log(`\x1b[36mIA : ${n} type(s) de log classé(s)${na ? `, dont ${na} validé(s) seul(s)` : ''}${ex.length ? ` (${ex.length} exemples appris)` : ''}\x1b[0m`);
   return { proposed: n, auto: na, examples: ex.length, left: queue().length, call: aiStats.last }; }
 // ---------- Entraînement au repos ----------
 // Quand il n'y a rien à classer, l'IA locale s'exerce sur des types dont la note est connue, sans la voir : types validés par un
@@ -669,6 +803,7 @@ const trainOf = () => { const t = learned.train = learned.train || {}; t.items =
 let lastChat = 0, lastIdle = 0, idleJob = null, idleErr = 0;
 // Biais mesuré sur les 300 derniers exercices : en tout, et par niveau (une IA surnote souvent la routine et sous-note le grave,
 // ce qui s'annule dans la moyenne générale). Rappelé à l'IA dès 5 points en tout (12 exercices) ou 7 points sur un niveau (6 exercices).
+const cutWords = (t, n) => { t = String(t || '').trim(); return t.length <= n ? t : t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…'; };
 const LV_FR = ['bénins (0 à 29)', 'moyens (30 à 59)', 'graves (60 à 84)', 'critiques (85 à 100)'];
 function trainBiasAll(ex, mk) { const it = Object.entries((learned.train || {}).items || {}).filter(([k, v]) => v.got != null && (!ex || !ex.has(exk(k))) && (!mk || !v.model || v.model === mk)).map(([, v]) => v).sort((a, b) => b.last - a.last).slice(0, 300), lv = [0, 1, 2, 3].map(l => ({ lv: l, n: 0, s: 0 }));
   let n = 0, sg = 0; for (const x of it) { const d = x.got - x.want; n++; sg += d; lv[LEVEL(x.want)].n++; lv[LEVEL(x.want)].s += d; }
@@ -861,6 +996,22 @@ function campState() { const R = (learned.camp || {}).run; if (!R) return { run:
   const { boxes, ai, ...r } = R, b = Object.values(boxes || {}); return { run: { ...r, revient: b.filter(x => x.box === 0 && x.n > 0).length, acquis: b.filter(x => x.box >= 3).length, vus: b.length }, kinds: CAMP_KINDS }; }
 // Formation interrompue par un arrêt : reprise seule avec une IA locale ; une IA en ligne attend qu'on la relance (sa clé n'est pas gardée).
 setTimeout(() => { const R = (learned.camp || {}).run; if (SELFTEST || !R || R.st !== 'en cours' || camp) return; if (R.ai) { camp = { c: R.ai, key: R.key, mat: campMaterial(false), exam: new Set(formationItems().map(t => t.key)) }; campLoop(); } else { R.st = 'pause'; R.pausedAt = Date.now(); saveLearned(); } }, 5000).unref();
+// ---------- Vérification du référentiel par l'IA ----------
+// L'IA note à l'aveugle un log d'exemple de chaque règle livrée (corpus et logs du site), sans voir la règle. Quand elle n'est pas du
+// même niveau que SysLens, elle explique son avis, et un technicien tranche : garder la note de SysLens (l'IA en tire une leçon),
+// ou prendre la sienne (note corrigée du référentiel). Rien ne change sans un technicien, même quand l'IA est autonome.
+let audit = null;
+function refExamples() { const by = new Map(), add = line => { try { const ev = parse(line, '127.0.0.1'); if (!ev) return; const r = matchRef(ev, refTxt(ev)); if (!r || r.base == null || r.generic || by.has(r.k)) return;
+    by.set(r.k, { key: 'ref:' + r.k, k: r.k, cat: ev.cat, msg: tpl(ev.msg || ev.name, ev), sev: SEV[ev.sev], fam: ev.product, example: line, want: learned.bases[r.k] ?? r.base, wsig: r.sig, wmean: r.mean, wact: r.act }); } catch (e) {} };
+  PACK.corpus.forEach(add); for (const t of types.values()) if (t.cov === 'precis' && t.example) add(t.example); return [...by.values()]; }
+async function auditRun(c) { const list = refExamples(), A = audit = { st: 'en cours', done: 0, total: list.length, start: Date.now(), model: String(c.model || c.prov || '') }, got = [];
+  try { for (let i = 0; i < list.length; i += 8) { const b = list.slice(i, i + 8); try { const { res } = await aiRate(c, b, { exclude: new Set(b.map(t => t.key)), light: true }); b.forEach((t, j) => res[j] && got.push([t, res[j]])); } catch (e) { A.err = e.message; } A.done = Math.min(list.length, i + 8); }
+    const off = got.filter(([t, x]) => LEVEL(x.base) !== LEVEL(t.want)).map(([t]) => t), why = new Map();
+    A.phase = 'explications'; for (let i = 0; i < off.length; i += 6) { const b = off.slice(i, i + 6); try { const { res } = await aiRate(c, b, { exclude: new Set(b.map(t => t.key)) }); b.forEach((t, j) => res[j] && why.set(t.k, res[j])); } catch (e) { A.err = e.message; } }
+    const rows = got.filter(([t, x]) => LEVEL(x.base) !== LEVEL(t.want)).map(([t, x]) => { const w = why.get(t.k) || {}; return { k: t.k, sig: t.wsig, msg: String(t.msg).slice(0, 160), base: t.want, ia: x.base, iaFull: w.base, iaSig: w.sig || '', iaMean: w.mean || '', iaAct: w.act || '', st: 'à trancher' }; })
+      .sort((a, b) => Math.abs(b.ia - b.base) - Math.abs(a.ia - a.base));
+    learned.audit = { at: Date.now(), model: A.model, n: got.length, accord: got.length - rows.length, rows, regles: REF.filter(e => e.base != null && !e.generic).length }; saveLearned(); A.st = 'fini'; }
+  catch (e) { A.st = 'erreur'; A.err = e.message; } finally { A.end = Date.now(); } }
 // Au repos seulement : IA locale choisie, rien à classer, pas de recherche de doc, personne en train de discuter avec l'assistant (3 min),
 // machine peu chargée. Une tâche toutes les 5 min au plus ; 30 min de pause après une erreur de l'IA.
 async function idleTick(force) {
@@ -1086,6 +1237,13 @@ async function refApi(q, me) {
   if (q.op === 'formation-etat') return { formation, profils: learned.profils || {}, competences: PACK.competences, regles: PACK.regles, corpus: PACK.corpus.length };
   if (q.op === 'centre') return campApi(q);
   if (q.op === 'centre-etat') return campState();
+  if (q.op === 'audit') { const c = q.ai || learned.ia; if (!c) throw new Error('Aucune IA choisie.'); if (!(audit && audit.st === 'en cours')) auditRun(c).catch(() => {}); return { audit, resultat: learned.audit || null }; }
+  if (q.op === 'audit-etat') return { audit, resultat: learned.audit || null };
+  if (q.op === 'audit-garder' || q.op === 'audit-prendre') { const R = (learned.audit || {}).rows || [], row = R.find(x => x.k === String(q.k)); if (!row) throw new Error('Règle inconnue.');
+    if (q.op === 'audit-prendre') { learned.bases[row.k] = Math.round(Math.max(0, Math.min(100, +row.ia))); row.st = 'note de l’IA prise'; }
+    else { row.st = 'note de SysLens gardée'; const t = refExamples().find(x => x.k === row.k);   // l'IA en tire une leçon : exemple corrigé
+      if (t) { const tr = trainOf(); tr.items['ref:' + row.k] = { n: 1, fails: 1, ok: false, last: Date.now(), want: t.want, got: row.ia, cat: t.cat, msg: t.msg, wsig: t.wsig, src: 'vérification du référentiel', model: learned.ia ? mkey(learned.ia) : '' }; } }
+    row.by = me ? me.name : 'un technicien'; row.at = Date.now(); saveLearned(); return { ok: true, resultat: learned.audit }; }
   if (q.op === 'repos') { trainOf().on = !!q.on; saveLearned(); return { ok: true, stats: learnStats() }; }
   if (q.op === 'entrainer') { const c = q.ai || learned.ia; if (!c) throw new Error('Aucune IA choisie.'); const r = await idleTick({ ai: c }); return { ok: true, r, stats: learnStats() }; }
   if (q.op === 'ia') { if (!q.ai) { learned.ia = null; saveLearned(); return { ok: true }; }
@@ -1353,6 +1511,10 @@ const webSrv = http.createServer((q, r) => {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 16384) q.destroy(); });
     q.on('end', async () => { try { json(200, await refApi(JSON.parse(body), q.me)); } catch (e) { json(400, { error: e.message }); } }); }
+  else if (q.url === '/api/odoo' && q.method === 'POST') {
+    const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
+    if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 16384) q.destroy(); });
+    q.on('end', async () => { try { json(200, await odooApi(JSON.parse(body || '{}'), q.me)); } catch (e) { json(400, { error: e.message }); } }); }
   else if (q.url === '/api/notif' && q.method === 'POST') {
     const json = (code, o) => { r.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r.end(JSON.stringify(o)); };
     if (!sameOrigin(q)) return json(403, { error: 'Refusé.' }); let body = ''; q.on('data', d => { body += d; if (body.length > 8192) q.destroy(); });

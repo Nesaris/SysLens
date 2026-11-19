@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.9.7",
+    "date": "2026-11-19",
+    "points": [
+      "Telegram : bouton « Je m’en occupe » sous chaque alerte. L’incident passe acquitté au nom de la personne, et SysLens mesure le temps de prise en charge.",
+      "Telegram : au retour à la normale, « Le diagnostic était-il bon ? » avec 👍 / 👎. Un diagnostic de l’IA confirmé devient un type validé ; un diagnostic jugé mauvais est marqué à revoir.",
+      "Telegram : chaque proposition de l’IA, de moyen à critique, arrive avec 👍 Juste, ⬆️ Trop bas, ⬇️ Trop haut, 👎 Faux (12 par heure au plus). La réponse vaut une décision de technicien : l’IA en apprend comme d’une validation dans la console, autonomie comprise.",
+      "Seuls les boutons du groupe configuré comptent, une seule réponse par message, et le message affiche ensuite qui a répondu. Telegram est écouté par interrogation longue, sans rien ouvrir sur le réseau. Réglage et bilan dans Extensions › Telegram.",
+      "Connexion admin depuis le réseau local ou une adresse de confiance (Réglages › Connexions admin attendues) : plus d’incident, un simple message « ⚠️ Connexion admin sur … ⚠️ » avec le compte, l’adresse et le protocole, une fois par demi-heure, sur Telegram et Teams. Depuis une adresse publique inconnue, c’est critique.",
+      "Référentiel revu : fichier ou sandbox bloqué par le pare-feu, grave et non plus critique (la menace n’est pas passée ; critique reste pour une menace détectée sans blocage, un poste en quarantaine, une requête vers un botnet). Port d’un switch ou d’une borne tombé : moyen (le plus souvent un poste éteint), lien montant (SFP, agrégat) et interface de pare-feu toujours graves. Floods et négociations VPN refusées depuis Internet : moyen.",
+      "Avis de l’IA sur le référentiel (Référentiel) : l’IA note à l’aveugle un log d’exemple de chaque règle livrée, explique ses désaccords de niveau, et un technicien tranche : garder la note de SysLens (l’IA en tire une leçon) ou prendre la sienne.",
+      "Messages Telegram revus : un switch nommé « TEST-GS1350 » ou « SW-GS1920 » n’est plus annoncé comme pare-feu ; la source n’est donnée que pour les alertes de sécurité ; l’heure n’apparaît que si le log est arrivé en retard ; le titre proposé par l’IA est coupé entre deux mots ; le retour à la normale rappelle la cause et l’action ; une proposition critique précise qu’elle est traitée en grave au plus en attendant un avis.",
+      "« Je m’en occupe » annonce la prise en charge dans le groupe, en réponse à l’alerte : « 🙋 Eloan s’occupe de « Lien WAN tombé » sur fw-siege ». Le bouton de l’alerte affiche ensuite qui s’en occupe.",
+      "Odoo Assistance (Extensions › Odoo) : un ticket par alerte des niveaux choisis (une seule fois par incident, même en rafale), dans l’équipe choisie, avec la priorité, le log et l’action conseillée. « Je m’en occupe » sur Telegram l’assigne au compte Odoo relié à ce technicien et y laisse une note. Retour à la normale ou clôture dans SysLens : ticket passé à l’étape choisie, avec une note. Clé API dans le trousseau macOS, jamais dans un fichier ; adresse en HTTPS seulement."
+    ]
+  },
+  {
     "version": "0.9.6",
     "date": "2026-11-19",
     "points": [

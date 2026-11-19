@@ -127,6 +127,17 @@
    "floor": 85
   },
   {
+   "k": "malware-stop",
+   "fam": "Pare-feu",
+   "base": 65,
+   "sig": "Fichier malveillant bloqué",
+   "mean": "Le pare-feu a arrêté un fichier malveillant : il n’est pas arrivé jusqu’au poste.",
+   "act": "Identifier le poste destinataire et d’où venait le fichier (mail, site) ; analyser le poste s’il a pu le récupérer par un autre chemin.",
+   "src": "Guides ZLD (USG FLEX, ATP, USG), Log Descriptions",
+   "cat": "anti-?malware|anti-?virus|^av$|^aav",
+   "re": "destroy|delet|\\bblock|\\bdrop|quarantin|remov|clean|\\breset\\b"
+  },
+  {
    "k": "malware",
    "fam": "Pare-feu",
    "base": 80,
@@ -137,6 +148,17 @@
    "cat": "anti-?malware|anti-?virus|^av$|^aav",
    "re": "virus|malware|infect|detect|destroy|block|drop|quarantin|threat|eicar|trojan|ransom",
    "floor": 85
+  },
+  {
+   "k": "sandbox-stop",
+   "fam": "Pare-feu",
+   "base": 65,
+   "sig": "Fichier dangereux bloqué par le Sandbox",
+   "mean": "Le Sandbox a jugé le fichier dangereux et le pare-feu l’a arrêté.",
+   "act": "Retrouver qui devait le recevoir et d’où il venait ; analyser le poste s’il a pu l’ouvrir.",
+   "src": "Guides ZLD (USG FLEX, ATP, USG), Log Descriptions",
+   "cat": "sandbox",
+   "re": "(malicious|suspicious|threat)[^,]*(destroy|delet|\\bblock|\\bdrop|remov)|(destroy|delet|\\bblock|\\bdrop|remov)[^,]*(malicious|suspicious|threat)"
   },
   {
    "k": "sandbox",
@@ -252,7 +274,7 @@
   {
    "k": "adp-flood",
    "fam": "Pare-feu",
-   "base": 50,
+   "base": 40,
    "sig": "Attaque par saturation (flood)",
    "mean": "Le pare-feu détecte une inondation de paquets.",
    "act": "Regarder la source et la cible ; durable : prévenir l’opérateur.",
@@ -294,7 +316,7 @@
   {
    "k": "dos",
    "fam": "Toutes",
-   "base": 50,
+   "base": 40,
    "sig": "Attaque par saturation (flood)",
    "mean": "Inondation de paquets détectée.",
    "act": "Regarder la source et la cible.",
@@ -358,7 +380,7 @@
   {
    "k": "vpn-nego",
    "fam": "Pare-feu",
-   "base": 52,
+   "base": 40,
    "sig": "Négociation VPN refusée",
    "mean": "Le tunnel ne se monte pas : paramètres, clé partagée ou certificat différents des deux côtés.",
    "act": "Comparer les paramètres IKE (version, propositions, clé, identifiants) des deux extrémités.",
@@ -629,7 +651,9 @@
    "telemetry": true,
    "recovers": [
     "link-down",
-    "wan-down"
+    "wan-down",
+    "port-down",
+    "uplink-down"
    ]
   },
   {
@@ -641,6 +665,26 @@
    "act": "Contacter l’opérateur, vérifier la bascule de secours.",
    "src": "Guides ZLD (USG FLEX, ATP, USG), Log Descriptions",
    "re": "\\b(wan\\d*|ge1|ppp\\w*|cellular\\w*|internet|uplink)\\b[^,]*\\b(down|disconnect\\w*|dead|lost|fail\\w*)\\b"
+  },
+  {
+   "k": "uplink-down",
+   "fam": "Toutes",
+   "base": 62,
+   "sig": "Lien montant tombé",
+   "mean": "Un lien vers un autre équipement (SFP, agrégat, lien montant) est tombé.",
+   "act": "Vérifier le câble ou le module SFP et l’équipement en face.",
+   "src": "Guides Zyxel (pare-feu, switchs, bornes)",
+   "re": "(sfp|uplink|trunk|\\blag\\d*|port-?channel|10g|xg\\d|\\bt\\d+\\b)[^,]*(\\bdown\\b|disconnect|dead)"
+  },
+  {
+   "k": "port-down",
+   "fam": "Switch",
+   "base": 30,
+   "sig": "Port d’un switch ou d’une borne tombé",
+   "mean": "Un port est passé à l’état down : le plus souvent un poste éteint ou débranché.",
+   "act": "Rien à faire si c’est un poste ; si un équipement réseau est branché sur ce port, vérifier le câble.",
+   "src": "Guides switchs ZyNOS (GS, XGS, XMG), Syslog",
+   "re": "\\bport\\s*\\d+[^,]*(\\bdown\\b|disconnect|dead)"
   },
   {
    "k": "link-down",

@@ -205,7 +205,7 @@ test('grande échelle : plusieurs processus de réception, équipements derrièr
   assert.equal(st.devices.length, 2, 'le routeur et le switch derrière la même IP sont deux équipements');
   assert.equal(st.devices.reduce((a, d) => a + d.count, 0), 301);
   const sw = st.devices.find(d => d.host === 'XMG1915-10E'); assert.equal(sw.product, 'XMG1915-10E');
-  const inc = (await requete(s.web, '/api/incidents')).json; assert.equal(inc.total, 1); assert.equal(inc.incidents[0].k, 'link-down'); assert.equal(inc.incidents[0].level, 'grave');
+  const inc = (await requete(s.web, '/api/incidents')).json; assert.equal(inc.total, 1); assert.equal(inc.incidents[0].k, 'port-down'); assert.equal(inc.incidents[0].level, 'moyen');
   const fichiers = fs.readdirSync(path.join(s.dossier, 'logs'));
   const zl = require('zlib'), bruts = fichiers.filter(f => /^raw-.*\.w\d+\.log\.gz$/.test(f)).reduce((a, f) => a + zl.gunzipSync(fs.readFileSync(path.join(s.dossier, 'logs', f)), { finishFlush: zl.constants.Z_SYNC_FLUSH }).toString().split('\n').filter(Boolean).length, 0);
   assert.equal(bruts, 301, 'tout le brut est archivé');
@@ -440,10 +440,10 @@ test('alertes Telegram : le serveur envoie critiques et graves une seule fois, p
   assert.equal((await tgp({ op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', chatName: 'Astreinte', lv: ['critique', 'grave'] })).statut, 200);
   const st = (await tgp({ op: 'status' })).json; assert.equal(st.on, true); assert.equal(st.token, true);
   assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'alertes.json'), 'utf8').includes('AAEssai'), 'le jeton ne va pas dans un fichier');
-  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com destroyed cat=Anti-Malware ZYlevel=alert')]);
+  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com detected cat=Anti-Malware ZYlevel=alert')]);
   for (let i = 0; i < 40 && !recus.length; i++) await attendre(100);
   assert.equal(recus.length, 1); assert.equal(recus[0].chat_id, '-100123'); assert.match(recus[0].text, /CRITIQUE/); assert.match(recus[0].text, /usgflex50w/);
-  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com destroyed cat=Anti-Malware ZYlevel=alert')]);
+  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com detected cat=Anti-Malware ZYlevel=alert')]);
   await attendre(1500); assert.equal(recus.length, 1, 'même incident : pas de deuxième message');
   await envoyer(s.syslog, [cef('Interface', 3, 'msg=Interface wan1 link down cat=Interface ZYlevel=error')]); for (let i = 0; i < 40 && recus.length < 2; i++) await attendre(100);
   assert.equal(recus.length, 2); assert.match(recus[1].text, /GRAVE/);
@@ -692,7 +692,7 @@ test('alertes Teams et WhatsApp : même moteur, niveaux par canal, secrets hors 
   const f = fs.readFileSync(path.join(s.dossier, 'logs', 'alertes.json'), 'utf8'); assert.ok(!f.includes('SecretDeSignature') && !f.includes('EAAJeton'), 'ni webhook ni jeton dans un fichier');
   teams.length = 0; wa.length = 0;
   // Un critique part sur les deux canaux ; un grave sur Teams seulement ; son retour à la normale aussi.
-  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com destroyed cat=Anti-Malware ZYlevel=alert')]);
+  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com detected cat=Anti-Malware ZYlevel=alert')]);
   for (let i = 0; i < 40 && (teams.length < 1 || wa.length < 2); i++) await attendre(100);
   assert.equal(teams.length, 1); assert.equal(wa.length, 2); assert.match(teams[0].attachments[0].content.body[0].text, /^CRITIQUE/); assert.equal(teams[0].attachments[0].content.body[0].color, 'Attention');
   assert.match(wa[0].template.components[0].parameters[0].text, /^CRITIQUE .* usgflex50w/);
@@ -710,13 +710,13 @@ test('assistant : « que traiter en premier » vient de l’état réel, « corr
   const ai = { prov: 'ollama', mode: 'local', url: 'http://127.0.0.1:' + ollama.address().port, model: 'faux' }, s = await demarrer();
   const chat = (text, id) => requete(s.web, '/api/chat', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'send', text, id, ai }) }).then(r => { assert.equal(r.statut, 200, r.texte); return r.json; });
   const last = c => c.msgs[c.msgs.length - 1];
-  await envoyer(s.syslog, ['<11>2026-11-19T09:38:41Z XMG1915 interface: Port 2 link down', cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com destroyed cat=Anti-Malware ZYlevel=alert')]);
+  await envoyer(s.syslog, ['<11>2026-11-19T09:38:41Z XMG1915 interface: Port 2 link down', cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com detected cat=Anti-Malware ZYlevel=alert')]);
   await attendre(1500);
   let c = await chat('Qu’est-ce que je traite en premier ?'), m = last(c);
   assert.match(m.content, /^En premier : Critique/); assert.match(m.content, /usgflex50w/); assert.equal(m.refs[0].label, 'Ouvrir l’incident'); assert.match(m.refs[0].key, /^cli-test\|usgflex50w\|/);
   // Feinte : « corrigé » alors que rien n'a changé.
   c = await chat('Corrigé, ensuite', c.id); m = last(c);
-  assert.match(m.content, /^Je le vois encore ouvert dans SysLens/); assert.match(m.content, /Ensuite : Grave · .* sur XMG1915/); assert.match(m.content, /C’est le dernier incident ouvert/);
+  assert.match(m.content, /^Je le vois encore ouvert dans SysLens/); assert.match(m.content, /Ensuite : Moyen · .* sur XMG1915/); assert.match(m.content, /C’est le dernier incident ouvert/);
   // Vraie correction : le port remonte.
   await envoyer(s.syslog, ['<14>2026-11-19T09:39:44Z XMG1915 interface: Port 2 link up 1G/F']); await attendre(1500);
   c = await chat('c’est fait', c.id); m = last(c);
@@ -745,5 +745,108 @@ test('consigne glissée dans un log : retirée avant l’IA et signalée, sans t
   const a = lot.find(t => /dropped profile cache/.test(t.message)), b = lot.find(t => /rate limit/.test(t.message));
   assert.ok(!/ignore previous/i.test(prompts[0]), 'consigne envoyée à l’IA'); assert.match(a.message, /\[consigne retirée\]/); assert.match(a.alerte, /consigne adressée à l’IA/);
   assert.equal(b.alerte, undefined); assert.match(b.message, /set the rate limit/);
+  s.proc.kill();
+});
+
+test('retours Telegram : « je m’en occupe », « le diagnostic était-il bon ? » et avis sur les propositions de l’IA', async () => {
+  const json = { 'content-type': 'application/json' }, msgs = [], edits = [], answers = [], updates = []; let uid = 1;
+  const tgFake = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const m = q.url.split('/').pop(), c = b ? JSON.parse(b) : {}; rr.writeHead(200, json);
+    if (m === 'getMe') return rr.end(JSON.stringify({ ok: true, result: { username: 'essai_bot' } }));
+    if (m === 'sendMessage') { msgs.push(c); return rr.end(JSON.stringify({ ok: true, result: { message_id: msgs.length } })); }
+    if (m === 'getUpdates') { const u = updates.splice(0); return rr.end(JSON.stringify({ ok: true, result: u })); }
+    if (m === 'answerCallbackQuery') answers.push(c.text); if (m === 'editMessageReplyMarkup') edits.push(c);
+    rr.end(JSON.stringify({ ok: true, result: true })); }); });
+  const ollama = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const lot = JSON.parse(JSON.parse(b).messages[0].content.split('Types à noter :')[1]); rr.writeHead(200, json);
+    rr.end(JSON.stringify({ message: { content: JSON.stringify({ types: lot.map(t => ({ id: t.id, base: 45, sig: 'Cache de profil vidé', mean: 'L’agent a vidé son cache.', act: 'Surveiller.', confiance: 0.6 })) }) } })); }); });
+  await Promise.all([tgFake, ollama].map(x => new Promise(ok => x.listen(0, '127.0.0.1', ok)))); after(() => { tgFake.close(); ollama.close(); });
+  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1', SYSLENS_TG_POLL: '0' });
+  const tgp = b => requete(s.web, '/api/tg', { methode: 'POST', entetes: json, corps: JSON.stringify(b) });
+  assert.equal((await tgp({ op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', chatName: 'Astreinte', lv: ['critique', 'grave'] })).statut, 200);
+  const clic = (data, who, chat = -100123) => { updates.push({ update_id: uid++, callback_query: { id: 'cb' + uid, data, from: { username: who }, message: { chat: { id: chat }, message_id: 9 } } }); };
+  const attendreQue = async f => { for (let i = 0; i < 60 && !f(); i++) await attendre(100); assert.ok(f()); };
+  // Alerte critique : bouton « je m'en occupe » → incident acquitté, temps de prise en charge mesuré.
+  await envoyer(s.syslog, [cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com detected cat=Anti-Malware ZYlevel=alert')]);
+  await attendreQue(() => msgs.length >= 1); const kb = msgs[0].reply_markup.inline_keyboard[0][0]; assert.equal(kb.text, '🙋 Je m’en occupe');
+  clic(kb.callback_data, 'autre', -999); await attendreQue(() => answers.length >= 1); assert.match(answers[0], /Groupe non reconnu/);
+  clic(kb.callback_data, 'bob'); await attendreQue(() => edits.length >= 1); assert.match(edits[0].reply_markup.inline_keyboard[0][0].text, /@bob s’en occupe \(0 min après l’alerte\)/); await attendreQue(() => msgs.some(m => /^🙋 @bob s’occupe de « Fichier malveillant détecté »/.test(m.text)));
+  const etat = (await requete(s.web, '/api/incidents-etat')).json.etat; assert.ok(Object.values(etat).some(v => v.st === 'acquitté' && v.by === '@bob (Telegram)'));
+  clic(kb.callback_data, 'zoe'); await attendreQue(() => answers.length >= 3); assert.match(answers[2], /Déjà répondu par @bob/);
+  // Retour à la normale : « le diagnostic était-il bon ? »
+  await envoyer(s.syslog, [cef('Interface', 3, 'msg=Interface wan1 link down cat=Interface ZYlevel=error')]); await attendreQue(() => msgs.some(m => /GRAVE/.test(m.text)));
+  await envoyer(s.syslog, [cef('Interface', 6, 'msg=Interface wan1 link up cat=Interface ZYlevel=info')]); await attendreQue(() => msgs.some(m => /Revenu à la normale/.test(m.text)));
+  const back = msgs.find(m => /Revenu à la normale/.test(m.text));
+  assert.match(back.text, /Revenu à la normale[\s\S]*Diagnostic de SysLens :\n[\s\S]*À faire : [\s\S]*Était-il bon \?/); const dk = back.reply_markup.inline_keyboard[0];
+  assert.equal(dk[0].text, '👍 Bon diagnostic'); clic(dk[1].callback_data, 'alice'); await attendreQue(() => edits.length >= 2); assert.match(edits[1].reply_markup.inline_keyboard[0][0].text, /mauvais par @alice/);
+  // Proposition de l'IA : avis demandé, « trop bas » la corrige au niveau au-dessus et compte comme une décision de technicien.
+  await envoyer(s.syslog, ['<12>2026-11-19T09:00:00+01:00 GS1350-26HP hybridmode: Hybrid mode agent dropped profile cache']); await attendre(1300);
+  assert.equal((await requete(s.web, '/api/ref', { methode: 'POST', entetes: json, corps: JSON.stringify({ op: 'classify', ai: { prov: 'ollama', mode: 'local', url: 'http://127.0.0.1:' + ollama.address().port, model: 'x' } }) })).statut, 200);
+  await attendreQue(() => msgs.some(m => /Nouveau type de log, noté par l’IA/.test(m.text))); const pm = msgs.find(m => /Nouveau type de log/.test(m.text));
+  assert.match(pm.text, /Note proposée : 45\/100 \(moyen\)/); const pk = pm.reply_markup.inline_keyboard.flat(); assert.deepEqual(pk.map(x => x.text), ['👍 Juste', '⬆️ Trop bas', '⬇️ Trop haut', '👎 Faux']);
+  clic(pk[1].callback_data, 'carl'); await attendreQue(() => edits.length >= 3); assert.match(edits[2].reply_markup.inline_keyboard[0][0].text, /Corrigée à 70\/100 par @carl/);
+  const ref = (await requete(s.web, '/api/referentiel')).json, L = ref.learned.find(x => /dropped profile cache/.test(x.msg)); assert.equal(L.st, 'valide'); assert.equal(L.base, 70);
+  assert.equal(ref.learn.decisions, 1, 'compte comme une décision de technicien');
+  const st = (await tgp({ op: 'status' })).json.retours; assert.equal(st.prises, 1); assert.equal(st.diagKo, 1);
+  s.proc.kill();
+});
+
+test('connexion admin : simple message depuis le réseau local ou une adresse de confiance, critique depuis une adresse inconnue', async () => {
+  const json = { 'content-type': 'application/json' }, recus = [];
+  const tgFake = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const m = q.url.split('/').pop(), c = b ? JSON.parse(b) : {}; rr.writeHead(200, json);
+    if (m === 'getMe') return rr.end(JSON.stringify({ ok: true, result: { username: 'essai_bot' } })); if (m === 'sendMessage') recus.push(c); rr.end(JSON.stringify({ ok: true, result: m === 'getUpdates' ? [] : { message_id: 1 } })); }); });
+  await new Promise(ok => tgFake.listen(0, '127.0.0.1', ok)); after(() => tgFake.close());
+  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1', SYSLENS_TG_POLL: '0' });
+  const post = (u, b) => requete(s.web, u, { methode: 'POST', entetes: json, corps: JSON.stringify(b) });
+  assert.equal((await post('/api/tg', { op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', chatName: 'Astreinte', lv: ['critique', 'grave'] })).statut, 200);
+  assert.match((await post('/api/notif', { op: 'confiance', admin: '300.1.1.1' })).json.error, /Adresses invalides/);
+  assert.equal((await post('/api/notif', { op: 'confiance', admin: '203.0.113.0/28\n198.51.100.7' })).statut, 200);
+  const login = src => cef('User', 5, `src=${src} dst=192.168.1.1 msg=Administrator admin has logged in from ${src} via HTTPS cat=User ZYlevel=notice`);
+  await envoyer(s.syslog, [login('192.168.1.10')]); for (let i = 0; i < 40 && !recus.length; i++) await attendre(100);
+  assert.equal(recus.length, 1); assert.match(recus[0].text, /^⚠️ Connexion admin sur usgflex50w ⚠️\nCompte admin depuis 192\.168\.1\.10 \(réseau local\) en HTTPS/);
+  await envoyer(s.syslog, [login('192.168.1.10')]); await attendre(1500); assert.equal(recus.length, 1, 'même compte, même adresse : un seul message par demi-heure');
+  await envoyer(s.syslog, [login('203.0.113.5')]); for (let i = 0; i < 40 && recus.length < 2; i++) await attendre(100);
+  assert.match(recus[1].text, /depuis 203\.0\.113\.5 \(adresse de confiance\)/);
+  const ev = await evenements(s.web); assert.ok(ev.filter(e => /logged in/.test(e.msg)).every(e => e.score <= 20 && e.level === 'benin'), 'aucun incident');
+  await envoyer(s.syslog, [login('45.33.12.9')]); for (let i = 0; i < 40 && recus.length < 3; i++) await attendre(100);
+  assert.match(recus[2].text, /^🔴 CRITIQUE/); assert.ok(!/Connexion admin sur/.test(recus[2].text));
+  s.proc.kill();
+});
+
+test('Odoo Assistance : un ticket par alerte, « Je m’en occupe » l’assigne et l’annonce dans Telegram, retour à la normale = étape de clôture', async () => {
+  const json = { 'content-type': 'application/json' }, msgs = [], updates = [], appels = []; let uid = 1, tid = 76;
+  const tgFake = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const m = q.url.split('/').pop(), c = b ? JSON.parse(b) : {}; rr.writeHead(200, json);
+    if (m === 'getMe') return rr.end(JSON.stringify({ ok: true, result: { username: 'essai_bot' } })); if (m === 'sendMessage') { msgs.push(c); return rr.end(JSON.stringify({ ok: true, result: { message_id: msgs.length } })); }
+    if (m === 'getUpdates') return rr.end(JSON.stringify({ ok: true, result: updates.splice(0) })); rr.end(JSON.stringify({ ok: true, result: true })); }); });
+  const odoo = http.createServer((q, rr) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { const p = JSON.parse(b).params; rr.writeHead(200, json); const ok = result => rr.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
+    if (p.service === 'common' && p.method === 'authenticate') return ok(p.args[2] === 'cle-api-odoo-de-test' ? 2 : false); if (p.service === 'common') return ok({ server_version: '18.0' });
+    const [db, u, key, model, method, args, kw] = p.args; if (key !== 'cle-api-odoo-de-test') return rr.end(JSON.stringify({ error: { message: 'Access Denied' } })); appels.push({ model, method, args, kw });
+    if (method === 'search_read') return ok(model === 'helpdesk.team' ? [{ id: 3, name: 'Supervision' }] : model === 'helpdesk.stage' ? [{ id: 1, name: 'Nouveau', fold: false }, { id: 9, name: 'Résolu', fold: true }] : [{ id: 5, name: 'Eloan V', login: 'eloan@exemple.fr' }]);
+    if (method === 'create') return ok(++tid); ok(true); }); });
+  await Promise.all([tgFake, odoo].map(x => new Promise(ok => x.listen(0, '127.0.0.1', ok)))); after(() => { tgFake.close(); odoo.close(); });
+  const s = await demarrer({ SYSLENS_TG_API: 'http://127.0.0.1:' + tgFake.address().port, SYSLENS_NO_KEYCHAIN: '1', SYSLENS_TG_POLL: '0', SYSLENS_ODOO_TEST: '1' });
+  const post = (u, b) => requete(s.web, u, { methode: 'POST', entetes: json, corps: JSON.stringify(b) }), O = { url: 'http://127.0.0.1:' + odoo.address().port, db: 'essai', login: 'syslens@exemple.fr' };
+  const attendreQue = async f => { for (let i = 0; i < 60 && !f(); i++) await attendre(100); assert.ok(f()); };
+  assert.match((await post('/api/odoo', { ...O, op: 'test', key: 'mauvaise-cle' })).json.error, /Identifiants refusés/);
+  const t = (await post('/api/odoo', { ...O, op: 'test', key: 'cle-api-odoo-de-test' })).json; assert.equal(t.version, '18.0', JSON.stringify(t)); assert.equal(t.teams[0].name, 'Supervision'); assert.equal(t.stages.length, 2);
+  assert.equal((await post('/api/odoo', { ...O, op: 'save', key: 'cle-api-odoo-de-test', team: 3, stage: 9, lv: ['critique', 'grave'] })).statut, 200);
+  assert.ok(!fs.readFileSync(path.join(s.dossier, 'logs', 'odoo.json'), 'utf8').includes('cle-api'), 'clé hors des fichiers');
+  assert.equal((await post('/api/tg', { op: 'save', token: '123456789:AAEssaiJetonBidonPourLesTests_x', chat: '-100123', chatName: 'Astreinte', lv: ['critique', 'grave'] })).statut, 200);
+  const mal = cef('Anti-Malware', 1, 'src=203.0.113.9 dst=192.168.1.20 msg=Virus infected: EICAR-Test-File, file eicar.com detected cat=Anti-Malware ZYlevel=alert');
+  await envoyer(s.syslog, [mal, mal, mal]); await attendreQue(() => msgs.length >= 1 && appels.some(a => a.method === 'create'));
+  await attendre(500); const cr = appels.filter(a => a.method === 'create'); assert.equal(cr.length, 1, 'un seul ticket pour la rafale');
+  assert.equal(cr[0].model, 'helpdesk.ticket'); assert.equal(cr[0].args[0].team_id, 3); assert.equal(cr[0].args[0].priority, '3'); assert.match(cr[0].args[0].name, /^\[SysLens\] Fichier malveillant détecté — usgflex50w/);
+  const clic = (data, from) => updates.push({ update_id: uid++, callback_query: { id: 'cb' + uid, data, from, message: { chat: { id: -100123 }, message_id: 1 } } });
+  clic(msgs[0].reply_markup.inline_keyboard[0][0].callback_data, { id: 42, first_name: 'Eloan', username: 'eloan' });
+  await attendreQue(() => msgs.some(m => /s’occupe de/.test(m.text))); let ann = msgs.find(m => /s’occupe de/.test(m.text));
+  assert.match(ann.text, /^🙋 Eloan s’occupe de « Fichier malveillant détecté » sur usgflex50w\nTicket Odoo #77 créé, à assigner dans Odoo \(compte de Eloan pas encore relié\)/); assert.equal(ann.reply_parameters.message_id, 1);
+  assert.ok(appels.some(a => a.method === 'message_post' && /Pris en charge par Eloan depuis Telegram/.test(a.kw.body)));
+  const st = (await post('/api/odoo', { op: 'status' })).json; assert.deepEqual(st.tg.map(u => u.name), ['Eloan']);
+  assert.equal((await post('/api/odoo', { op: 'users', users: { 42: 5 } })).statut, 200);
+  await envoyer(s.syslog, [cef('Interface', 3, 'msg=Interface wan1 link down cat=Interface ZYlevel=error')]); await attendreQue(() => msgs.filter(m => /GRAVE/.test(m.text || '')).length >= 1);
+  const grave = msgs.find(m => /GRAVE/.test(m.text)); clic(grave.reply_markup.inline_keyboard[0][0].callback_data, { id: 42, first_name: 'Eloan' });
+  await attendreQue(() => msgs.filter(m => /s’occupe de/.test(m.text)).length >= 2); ann = msgs.filter(m => /s’occupe de/.test(m.text))[1];
+  assert.match(ann.text, /Ticket Odoo #78 assigné à Eloan/); assert.ok(appels.some(a => a.method === 'write' && a.args[0][0] === 78 && a.args[1].user_id === 5));
+  await envoyer(s.syslog, [cef('Interface', 6, 'msg=Interface wan1 link up cat=Interface ZYlevel=info')]); await attendreQue(() => appels.some(a => a.method === 'write' && a.args[0][0] === 78 && a.args[1].stage_id === 9));
+  const k = cr[0] && Object.keys(JSON.parse(fs.readFileSync(path.join(s.dossier, 'logs', 'odoo-tickets.json'), 'utf8'))).find(x => /usgflex50w\|malware/.test(x));
+  assert.equal((await post('/api/incidents-etat', { key: k, st: 'clos' })).statut, 200); await attendreQue(() => appels.some(a => a.method === 'write' && a.args[0][0] === 77 && a.args[1].stage_id === 9));
   s.proc.kill();
 });

@@ -36,7 +36,7 @@ function loadLearned() { try { const j = JSON.parse(fs.readFileSync(LEARN_FILE, 
 loadLearned();
 // Gabarit d'un message : les valeurs qui changent d'un log à l'autre sont remplacées, pour regrouper les logs d'un même type
 // (et pour que ce qui part vers une IA ne contienne ni adresse, ni compte, ni nom de machine).
-function tpl(s, ev) { let t = String(s || '');
+function tpl(s, ev) { let t = String(s || '').slice(0, 4096);   // borne avant normalisation : la sortie fait 100 car. de toute façon, et des regex (ex. courriel) rétro-marchent sur un très long champ
   if (ev.user && ev.user.length > 2) t = t.split(ev.user).join('<user>'); if (ev.host && ev.host.length > 2) t = t.split(ev.host).join('<host>');
   return t.replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<mail>').replace(/\b[0-9a-f]{2}([:-])[0-9a-f]{2}(\1[0-9a-f]{2}){4}\b/gi, '<mac>')
     .replace(/\b\d{1,3}(\.\d{1,3}){3}(\/\d+|:\d+)?\b/g, '<ip>').replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|fr|io|eu|de|be|ch|uk|info|biz|local|lan|ru|cn|xyz|top)\b/gi, '<nom>')
@@ -76,10 +76,10 @@ function parse(raw, from) {
     for (const ch of c) { if (esc) { cur += ch; esc = false; } else if (ch === '\\') esc = true; else if (ch === '|' && parts.length < 7) { parts.push(cur); cur = ''; } else cur += ch; }
     parts.push(cur); ev.fmt = 'CEF'; ev.product = parts[2] || ''; ev.ver = parts[3] || ''; ev.name = parts[5] || '';
     // Une valeur peut contenir « = » (ex. « [type=Web Attack] » dans msg) : elle s'arrête au prochain « clé= » précédé d'un espace.
-    const re = /(\w+)=([\s\S]*?)(?=\s+\w+=|$)/g; let x; while ((x = re.exec(parts[7] || ''))) ev.f[x[1]] = x[2].replace(/\\=/g, '=').trim();
+    const re = /(\w+)=([\s\S]*?)(?=\s+\w+=|\s*$)/g; let x; while ((x = re.exec(parts[7] || ''))) ev.f[x[1]] = x[2].replace(/\\=/g, '=').trim();
     if (ev.f.ZYlevel && SEV.includes(ev.f.ZYlevel.toLowerCase())) ev.sev = SEV.indexOf(ev.f.ZYlevel.toLowerCase());
   } else {
-    const re = /(\w+)="([^"]*)"/g; let x; while ((x = re.exec(rest))) ev.f[x[1]] = x[2];
+    const re = /(?:^|\s)(\w+)="([^"]*)"/g; let x; while ((x = re.exec(rest))) ev.f[x[1]] = x[2];
     if (Object.keys(ev.f).length) ev.fmt = 'ZLD';
   }
   if (!ev.product && /^(XMG|XGS|XS|GS|MG|NWA|WAX|WAC|WBE|NAP)\d/i.test(ev.host)) ev.product = ev.host;   // nom d'usine des switchs et bornes : le modèle

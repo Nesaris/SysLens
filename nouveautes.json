@@ -1,5 +1,13 @@
 [
  {
+  "version": "0.9.9",
+  "date": "2026-11-22",
+  "points": [
+   "Réception plus robuste : une ligne de log anormalement longue — un équipement qui déraille, ou un paquet syslog forgé avec une IP source usurpée — ne peut plus ralentir SysLens. L’analyse des champs (CEF, ZLD) et la mise en forme des messages sont désormais bornées et ne rétro-marchent plus sur un champ démesuré.",
+   "Aucun changement visible sur les logs normaux : mêmes champs, mêmes catégories, mêmes notes."
+  ]
+ },
+ {
   "version": "0.9.8",
   "date": "2026-11-19",
   "points": [

@@ -82,6 +82,28 @@ test('ALLOW écarte les sources non autorisées', async () => {
   assert.match(s.sortie.join(''), /Ignoré : log venant de 127\.0\.0\.1/);
 });
 
+test('résiste au ReDoS : des champs syslog forgés ne bloquent pas le collecteur', async () => {
+  const s = await demarrer();
+  // Charges qui rendaient le parsing quadratique avant correctif : une valeur CEF
+  // suivie d'un long blanc (le lookahead « \s+\w+= » rétro-marchait sur chaque espace),
+  // et une valeur ZLD à guillemet jamais fermé (« \w+ » redémarrait à chaque position).
+  const blanc = ' '.repeat(60 * 1024);
+  const guillemetOuvert = '<13>Nov 16 08:53:10 host service: x="' + 'Y'.repeat(60 * 1024);
+  const forges = [];
+  for (let i = 0; i < 6; i++) { forges.push(cef('System', 1, 'msg=x' + blanc)); forges.push(guillemetOuvert); }
+  const t0 = Date.now();
+  await envoyer(s.syslog, forges);
+  // Un log normal juste derrière : avec le défaut, chaque paquet forgé épinglait le
+  // processus de réception plusieurs secondes (boucle d'événements bloquée, console
+  // comprise), soit des dizaines de secondes avant d'arriver ici.
+  await envoyer(s.syslog, [cef('System', 1, 'msg=Port 3 is down! cat=System')]);
+  let ev = [];
+  for (let i = 0; i < 40 && !ev.some(e => e.msg === 'Port 3 is down!'); i++) { await attendre(100); ev = (await evenements(s.web)) || []; }
+  const ms = Date.now() - t0;
+  assert.ok(ev.some(e => e.msg === 'Port 3 is down!'), 'le log normal doit être traité malgré les charges forgées');
+  assert.ok(ms < 6000, `le collecteur ne doit pas caler : traité en ${ms} ms (attendu < 6 s ; ~1 min sans le correctif)`);
+});
+
 test('la console est servie et les appels sensibles refusent les autres sites', async () => {
   const s = await demarrer();
   const page = await requete(s.web, '/console');
